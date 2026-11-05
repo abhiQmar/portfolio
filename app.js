@@ -358,14 +358,14 @@ function renderSingleYearTable(holdings, totalNetWorth, year) {
 
     return `
       <tr>
-        <td style="font-weight: 700; font-size: 0.95rem;">
+        <td style="font-weight: 600; font-size: 0.92rem;">
           ${item.name}
           <div style="font-size:0.75rem; color:var(--text-muted); font-weight:normal;">${item.notes || "-"}</div>
         </td>
-        <td><span class="badge ${badgeClass}">${item.category}</span></td>
-        <td class="text-center">${getEntityBadge(item.holder)}</td>
-        <td class="text-right" style="font-weight:700; font-size:1rem; font-variant-numeric:tabular-nums;">${formatLakhsValue(val)}</td>
-        <td class="text-right" style="color:var(--accent-emerald); font-weight:700;">${share}%</td>
+        <td><span class="cell-category">${item.category}</span></td>
+        <td class="text-center"><span class="cell-entity">${item.holder || '-'}</span></td>
+        <td class="text-right cell-val">${formatLakhsValue(val)}</td>
+        <td class="text-right cell-share">${share}%</td>
         <td class="text-right">
           <button class="action-btn-sm" onclick="openHoldingModal('${item.id}')">✏️ Edit</button>
         </td>
@@ -379,9 +379,9 @@ function renderSingleYearTable(holdings, totalNetWorth, year) {
     const sumPct = totalNetWorth > 0 ? ((sumVal / totalNetWorth) * 100).toFixed(2) : "0.00";
     tfoot.innerHTML = `
       <tr class="total-row">
-        <td colspan="3" class="text-right" style="font-weight:700; text-transform:uppercase;">Total (${filtered.length} Holdings)</td>
-        <td class="text-right" style="color:var(--accent-emerald); font-weight:800; font-size:1.05rem;">${formatLakhsValue(sumVal)}</td>
-        <td class="text-right" style="color:var(--accent-emerald); font-weight:800;">${sumPct}%</td>
+        <td colspan="3" style="font-weight:800; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-primary);">NET WORTH (${filtered.length} Assets)</td>
+        <td class="text-right" style="font-weight:800; font-size:1.05rem; font-variant-numeric:tabular-nums; color:var(--text-primary);">${formatLakhsValue(sumVal)}</td>
+        <td class="text-right" style="font-weight:700; color:var(--text-secondary); font-variant-numeric:tabular-nums;">${sumPct}%</td>
         <td></td>
       </tr>
     `;
@@ -502,15 +502,15 @@ function renderMultiYearMatrix() {
 
     return `
       <tr>
-        <td style="font-weight: 700; font-size: 0.95rem;">
+        <td style="font-weight: 600; font-size: 0.92rem;">
           ${item.name}
           <div style="font-size:0.75rem; color:var(--text-muted); font-weight:normal;">${item.notes || "-"}</div>
         </td>
-        <td><span class="badge ${badgeClass}">${item.category}</span></td>
-        <td class="text-center">${getEntityBadge(item.holder)}</td>
+        <td><span class="cell-category">${item.category}</span></td>
+        <td class="text-center"><span class="cell-entity">${item.holder || '-'}</span></td>
         ${state.years.map(yr => {
           const v = Number(item.values?.[yr]) || 0;
-          return `<td class="text-right" style="font-variant-numeric:tabular-nums; font-weight:600;">${formatLakhsValue(v)}</td>`;
+          return `<td class="text-right cell-val">${formatLakhsValue(v)}</td>`;
         }).join("")}
         <td class="text-right">${growthText}</td>
         <td class="text-right">
@@ -604,6 +604,8 @@ function openHoldingModal(holdingId = null) {
   const customEntityInput = document.getElementById("holding-custom-entity");
   const customEntityGroup = document.getElementById("holding-custom-entity-group");
   const notesInput = document.getElementById("holding-notes-input");
+  const dateInput = document.getElementById("holding-date-input");
+  const todayStr = new Date().toISOString().split("T")[0];
 
   // Populate entity dropdown options based on current profile
   if (entitySelect) {
@@ -630,6 +632,7 @@ function openHoldingModal(holdingId = null) {
       nameInput.value = item.name;
       catInput.value = item.category || "Indian Equity";
       notesInput.value = item.notes || "";
+      if (dateInput) dateInput.value = item.date || todayStr;
 
       const holder = item.holder || state.entities[0];
       if (state.entities.includes(holder)) {
@@ -671,6 +674,8 @@ function saveHolding(e) {
   const entitySelect = document.getElementById("holding-entity-select");
   const customEntityInput = document.getElementById("holding-custom-entity");
   const notesInput = document.getElementById("holding-notes-input");
+  const dateInput = document.getElementById("holding-date-input");
+  const asOfDate = dateInput?.value || new Date().toISOString().split("T")[0];
 
   const name = nameInput.value.trim();
   if (!name) {
@@ -700,6 +705,7 @@ function saveHolding(e) {
       state.holdings[idx].name = name;
       state.holdings[idx].category = catInput.value;
       state.holdings[idx].holder = holder;
+      state.holdings[idx].date = asOfDate;
       state.holdings[idx].notes = notesInput.value.trim();
       state.holdings[idx].values = values;
       showToast(`Updated ${name}!`, "success");
@@ -711,6 +717,7 @@ function saveHolding(e) {
       name,
       category: catInput.value,
       holder,
+      date: asOfDate,
       notes: notesInput.value.trim(),
       values
     });
@@ -791,12 +798,12 @@ function renderBanksSection() {
       const pct = totalBankLiquid > 0 ? ((total / totalBankLiquid) * 100).toFixed(2) : "0.00";
       return `
         <tr>
-          <td style="font-weight:700;">${b.bank.toUpperCase()} Bank</td>
-          <td class="text-center">${getEntityBadge(b.holder || state.entities[0])}</td>
-          <td class="text-right" style="font-variant-numeric:tabular-nums;">${formatLakhsValue(sav)}</td>
-          <td class="text-right" style="font-variant-numeric:tabular-nums;">${fd > 0 ? formatLakhsValue(fd) : "₹0.00"}</td>
-          <td class="text-right" style="font-weight:700; color:var(--accent-emerald); font-variant-numeric:tabular-nums;">${formatLakhsValue(total)}</td>
-          <td class="text-right" style="color:var(--text-secondary);">${pct}%</td>
+          <td style="font-weight:600;">${b.bank.toUpperCase()} Bank</td>
+          <td class="text-center"><span class="cell-entity">${b.holder || state.entities[0]}</span></td>
+          <td class="text-right cell-val">${formatLakhsValue(sav)}</td>
+          <td class="text-right cell-val">${fd > 0 ? formatLakhsValue(fd) : "₹0.00"}</td>
+          <td class="text-right cell-val" style="font-weight:700;">${formatLakhsValue(total)}</td>
+          <td class="text-right cell-share">${pct}%</td>
           <td class="text-right" style="white-space:nowrap;">
             <button class="action-btn-sm" onclick="openBankModal('${b.bank}')">✏️ Edit</button>
             <button class="action-btn-sm delete" onclick="deleteBankAccount('${b.bank}')">🗑️</button>
