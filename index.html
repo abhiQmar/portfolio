@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AK Wealth | Multi-Profile & Family Portfolio Tracker</title>
+  
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📈</text></svg>">
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- External CDN Libraries (Client-Side Only) -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+
+  <!-- ==================== FIRST SCREEN: PROFILE SELECTOR OVERLAY ==================== -->
+  <div class="profile-selection-overlay" id="profile-selection-overlay">
+    <div class="profile-selection-card">
+      <div style="font-size: 2.75rem; margin-bottom: 0.5rem;">💼</div>
+      <h2 style="font-size: 1.6rem; font-weight: 800; color: var(--text-primary);">Select Active Wealth Profile</h2>
+      <p style="color: var(--text-secondary); margin-top: 0.4rem; font-size: 0.92rem; line-height: 1.5;">
+        Choose your portfolio workspace to load personalized asset holdings, multi-year ledgers, and bank accounts:
+      </p>
+
+      <div class="profile-cards-grid">
+        <!-- Profile 1: Abhishek -->
+        <div class="profile-choice-box" onclick="selectProfile('Abhishek')">
+          <div class="profile-choice-icon">👤</div>
+          <div class="profile-choice-title">Abhishek</div>
+          <div class="profile-choice-members">
+            <span class="badge-holder badge-holder-naresh">Abhishek</span>
+            <span class="badge-holder badge-holder-rekha">Family</span>
+          </div>
+          <p class="profile-choice-desc">
+            High-growth tech equity, employer stock ($UBER RSUs), overseas brokerages (IBKR, Vested), domestic demat & family assets.
+          </p>
+        </div>
+
+        <!-- Profile 2: Naresh (Family & HUF) -->
+        <div class="profile-choice-box" onclick="selectProfile('Naresh')">
+          <div class="profile-choice-icon">🏛️</div>
+          <div class="profile-choice-title">Naresh (Family & HUF)</div>
+          <div class="profile-choice-members">
+            <span class="badge-holder badge-holder-naresh">Naresh</span>
+            <span class="badge-holder badge-holder-rekha">Rekha</span>
+            <span class="badge-holder badge-holder-huf">HUF</span>
+          </div>
+          <p class="profile-choice-desc">
+            Comprehensive family wealth ledger segregated across individual, spouse, and Hindu Undivided Family (HUF) accounts.
+          </p>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: center; align-items: center; gap: 0.5rem; color: var(--text-muted); font-size: 0.8rem;">
+        <span>🔄</span>
+        <span>You can switch profiles anytime from the top header navigation pill.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top App Header -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand-section">
+        <div class="brand-logo">₹</div>
+        <div class="brand-info">
+          <h1>AK Wealth <span class="badge-india">India & Global</span></h1>
+          <p>Multi-Profile Wealth Management & Multi-Year Ledger</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- Active Profile Switcher Pill -->
+        <div id="active-profile-pill" class="profile-pill" title="Click to Switch Profile">
+          <span>🏛️</span>
+          <span>Profile: <strong>Naresh (Family & HUF)</strong></span>
+          <span>⇄</span>
+        </div>
+
+        <!-- USD to INR live exchange rate pill -->
+        <div class="fx-pill" title="Live USD to INR Exchange Rate">
+          <span class="label">USD / INR</span>
+          <span class="val" id="fx-rate-display">₹86.50</span>
+          <button class="fx-edit-btn" onclick="openModal('settings-modal')" title="Configure Rate">✏️</button>
+        </div>
+
+        <!-- Unit Selector -->
+        <div class="unit-toggle" title="Switch Display Currency Unit">
+          <button class="unit-btn active" data-unit="cr">Crores (Cr)</button>
+          <button class="unit-btn" data-unit="lakh">Lakhs (L)</button>
+          <button class="unit-btn" data-unit="full">Full ₹</button>
+        </div>
+
+        <!-- User profile display / chip -->
+        <div id="user-profile-display"></div>
+
+        <!-- Google OAuth Sign In / Out Button -->
+        <button id="auth-btn" class="btn btn-primary">
+          <span>🔒 Sign in with Google</span>
+        </button>
+
+        <!-- Settings Button -->
+        <button id="settings-btn" class="btn btn-secondary" title="Sync & Security Settings">
+          <span>⚙️ Settings</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main App Layout -->
+  <main class="main-wrapper">
+
+    <!-- Security & Sync Status Bar -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+      <div id="auth-status-chip" class="security-status-chip unauth" onclick="openModal('settings-modal')">
+        ⚠️ <span>Local / Demo Mode (Not Logged In)</span>
+      </div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem;">
+        <span id="active-entities-indicator">👨‍👩‍👧 Family Entities Configured</span>
+        <span>•</span>
+        <span>🛡️ <strong>Zero Private Keys</strong> Committed</span>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs: Tab 1 = Single-Year Minimalist, Tab 2 = Multi-Year Matrix -->
+    <nav class="tabs-nav">
+      <button class="tab-btn active" data-tab="overview">
+        <span>📊</span> Annual Portfolio (1-Year Minimalist)
+      </button>
+      <button class="tab-btn" data-tab="multiyear">
+        <span>📅</span> Multi-Year Matrix (Columns by Year)
+      </button>
+      <button class="tab-btn" data-tab="banks">
+        <span>🏦</span> Bank Balances & FDs
+      </button>
+      <button class="tab-btn" data-tab="brokers">
+        <span>🌐</span> US Stocks & Demat ($UBER, IBKR)
+      </button>
+      <button class="tab-btn" data-tab="sync">
+        <span>🔒</span> Google Sheet Sync & Security
+      </button>
+    </nav>
+
+    <!-- ==================== TAB 1: SINGLE-YEAR MINIMALIST ==================== -->
+    <section id="tab-overview" class="tab-content" style="display: block;">
+      
+      <!-- Minimalist Control Bar: Year Dropdown & Entity Selector -->
+      <div class="minimal-control-bar">
+        <div class="minimal-select-group">
+          <!-- Year Selector Dropdown -->
+          <div>
+            <span style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin-right: 6px;">Select Fiscal Year:</span>
+            <select id="overview-year-select" class="minimal-select">
+              <option value="2026" selected>2026 (Current Valuation)</option>
+              <option value="2025">2025 (Previous Year)</option>
+              <option value="2024">2024 (Historical Year)</option>
+            </select>
+          </div>
+
+          <!-- Family Member / Entity Selector Dropdown -->
+          <div>
+            <span style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin-right: 6px;">Entity / Member:</span>
+            <select id="overview-entity-select" class="minimal-select">
+              <option value="ALL">👨‍👩‍👧 All Entities</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="btn btn-primary" onclick="openHoldingModal()">
+            <span>➕</span> Add / Edit Holding
+          </button>
+        </div>
+      </div>
+
+      <!-- Minimalist Hero KPI Metrics -->
+      <div class="kpi-grid">
+        <!-- Hero Total Net Worth Card -->
+        <div class="kpi-card hero-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Net Worth Valuation</span>
+            <div class="kpi-icon emerald">📈</div>
+          </div>
+          <div class="kpi-value" id="kpi-networth">₹0.00 Cr</div>
+          <div class="kpi-subtext" id="kpi-networth-sub">
+            Fiscal Year Valuation
+          </div>
+        </div>
+
+        <!-- Liquid Cash & FDs -->
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Liquid Cash & FDs</span>
+            <div class="kpi-icon emerald">🏦</div>
+          </div>
+          <div class="kpi-value" id="kpi-cash">₹0.00 L</div>
+          <div class="kpi-subtext">Savings across banks + FDs</div>
+        </div>
+
+        <!-- Indian Equities & Mutual Funds -->
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Equities & MFs</span>
+            <div class="kpi-icon blue">📊</div>
+          </div>
+          <div class="kpi-value" id="kpi-equity">₹0.00 Cr</div>
+          <div class="kpi-subtext">Direct Equity, MF Eq & Arbitrage, PMS</div>
+        </div>
+
+        <!-- Global & Uber Stock -->
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Global & $UBER Stock</span>
+            <div class="kpi-icon purple">🚗</div>
+          </div>
+          <div class="kpi-value" id="kpi-uber">₹0.00 Cr</div>
+          <div class="kpi-subtext">$UBER Stock + US Demat (IBKR/Vested)</div>
+        </div>
+
+        <!-- Real Estate & Alts -->
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Real Estate & Alts</span>
+            <div class="kpi-icon amber">🏛️</div>
+          </div>
+          <div class="kpi-value" id="kpi-us">₹0.00 Cr</div>
+          <div class="kpi-subtext">Fractional RE, Land, EPF, PPF, FK</div>
+        </div>
+      </div>
+
+      <!-- Charts Grid: Asset Allocation + Family Entity Share -->
+      <div class="charts-grid">
+        <div class="card">
+          <div class="card-title-bar">
+            <h3 class="card-title"><span>🥧</span> Asset Allocation</h3>
+            <span style="font-size: 0.75rem; color: var(--text-muted);">For Selected Year</span>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="chart-allocation"></canvas>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title-bar">
+            <h3 class="card-title"><span>👥</span> Entity & Account Distribution</h3>
+            <span style="font-size: 0.75rem; color: var(--text-muted);">Share across family accounts</span>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="chart-entity-share"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Minimalist Single-Year Portfolio Table -->
+      <div class="card">
+        <div class="card-title-bar">
+          <h3 class="card-title"><span>📑</span> Single-Year Holdings Ledger</h3>
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Showing individual holdings for the selected year</span>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Investment Asset</th>
+                <th>Category</th>
+                <th class="text-center">Entity / Member</th>
+                <th class="text-right">Valuation</th>
+                <th class="text-right">% Share</th>
+                <th class="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="overview-top-tbody">
+              <!-- Rendered dynamically by app.js -->
+            </tbody>
+            <tfoot id="overview-table-tfoot">
+              <!-- Rendered dynamically -->
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 2: MULTI-YEAR ANNUAL MATRIX ==================== -->
+    <section id="tab-multiyear" class="tab-content" style="display: none;">
+      
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
+        <div>
+          <h2 style="font-size: 1.35rem; font-weight: 700; margin-bottom: 0.35rem;">Multi-Year Comparative Ledger</h2>
+          <p style="font-size: 0.85rem; color: var(--text-secondary);">
+            Annual wealth progression with columns for each fiscal year across family accounts.
+          </p>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+          <!-- Entity Filter -->
+          <div>
+            <select id="multiyear-entity-select" class="minimal-select">
+              <option value="ALL">👨‍👩‍👧 All Entities</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" onclick="openHoldingModal()">
+            <span>➕</span> Add Holding
+          </button>
+        </div>
+      </div>
+
+      <!-- Multi-Year Historical Bar / Trend Chart -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-title-bar">
+          <h3 class="card-title"><span>📈</span> Multi-Year Net Worth Progression</h3>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">2024 → 2025 → 2026</span>
+        </div>
+        <div class="chart-wrapper" style="height: 240px;">
+          <canvas id="chart-multiyear-trend"></canvas>
+        </div>
+      </div>
+
+      <!-- Multi-Year Comparative Table (Columns for each year) -->
+      <div class="card">
+        <div class="card-title-bar">
+          <h3 class="card-title"><span>📊</span> Annual Comparison Matrix</h3>
+          <span class="badge badge-liquid">Multi-Year Statement</span>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead id="multiyear-thead">
+              <!-- Rendered dynamically by app.js (columns for each year) -->
+            </thead>
+            <tbody id="multiyear-tbody">
+              <!-- Rendered dynamically by app.js -->
+            </tbody>
+            <tfoot id="multiyear-tfoot">
+              <!-- Rendered dynamically by app.js -->
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 3: BANKS & CASH ==================== -->
+    <section id="tab-banks" class="tab-content" style="display: none;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
+        <div>
+          <h2 style="font-size: 1.35rem; font-weight: 700; margin-bottom: 0.35rem;">Bank Balances & Fixed Deposits</h2>
+          <p style="font-size: 0.85rem; color: var(--text-secondary);">
+            Reconciled bank accounts with account holder assignment.
+          </p>
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <button class="btn btn-primary" onclick="openBankModal()">
+            <span>➕</span> Add / Update Bank Balance
+          </button>
+          <button class="btn btn-secondary" onclick="syncBanksToGoogleSheet(true)">
+            <span>☁️</span> Sync to Google Sheet
+          </button>
+        </div>
+      </div>
+
+      <!-- Bank Cards Grid -->
+      <div class="bank-cards-grid" id="bank-cards-container">
+        <!-- Rendered dynamically by app.js -->
+      </div>
+
+      <!-- Comprehensive Bank Reconciliation Table -->
+      <div class="card">
+        <div class="card-title-bar">
+          <h3 class="card-title"><span>🏦</span> Detailed Bank Reconciled Ledger</h3>
+          <span class="badge badge-liquid">100% Reconciled</span>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Bank Institution</th>
+                <th class="text-center">Account Holder</th>
+                <th class="text-right">Savings A/C (₹)</th>
+                <th class="text-right">Fixed Deposit (₹)</th>
+                <th class="text-right">Total Exposure (₹)</th>
+                <th class="text-right">Liquidity Share (%)</th>
+                <th class="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="bank-table-tbody">
+              <!-- Rendered dynamically -->
+            </tbody>
+            <tfoot id="bank-table-tfoot">
+              <!-- Rendered dynamically -->
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 4: BROKERS & US STOCKS ==================== -->
+    <section id="tab-brokers" class="tab-content" style="display: none;">
+      
+      <!-- Interactive USD/INR Converter Card -->
+      <div class="converter-card">
+        <div class="converter-info">
+          <h3>Currency Converter & Overseas Asset Pricing</h3>
+          <p>Real-time FX translation for USD accounts (IBKR, Vested, Uber RSUs).</p>
+        </div>
+        <div class="converter-controls">
+          <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary);">1 USD = </span>
+          <span style="color: var(--accent-emerald); font-weight: 700; font-size: 1.1rem;">₹</span>
+          <input type="number" id="fx-rate-input" class="converter-rate-input" value="86.50" step="0.1" />
+          <button class="btn btn-secondary" onclick="fetchLiveExchangeRate()" title="Fetch live exchange rate">🔄 Refresh Rate</button>
+        </div>
+      </div>
+
+      <!-- Brokerage & Overseas Table -->
+      <div class="card">
+        <div class="card-title-bar">
+          <h3 class="card-title"><span>🌐</span> Demat, Brokerage & Employer Equity</h3>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Platform / Account</th>
+                <th>Category</th>
+                <th class="text-center">Entity / Holder</th>
+                <th class="text-center">Currency</th>
+                <th class="text-right">Native Balance</th>
+                <th class="text-right">FX Conversion</th>
+                <th class="text-right">Approx INR Value</th>
+              </tr>
+            </thead>
+            <tbody id="brokers-tbody">
+              <!-- Rendered dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 5: GOOGLE SYNC & SECURITY ==================== -->
+    <section id="tab-sync" class="tab-content" style="display: none;">
+      
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <h2 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 0.75rem;">
+          🔒 Architecture: How Your Private Key Stays 100% Safe
+        </h2>
+        
+        <div class="security-callout">
+          <strong>Why this is completely safe on public GitHub Pages:</strong>
+          <ul style="margin-top: 0.5rem; margin-left: 1.25rem; line-height: 1.6;">
+            <li><strong>NO Private Keys or Secrets in Git:</strong> Uses Google's official <strong>OAuth 2.0 User Consent (PKCE)</strong>. Only a public <em>Client ID</em> is used.</li>
+            <li><strong>Google Authenticates Your Identity:</strong> When you click "Sign in with Google", you authenticate directly on Google's login server.</li>
+            <li><strong>Strict Sheet Access Control:</strong> Only your authorized Google account has view rights on the spreadsheet. Any unauthorized visitor on the internet gets <code>403 Forbidden</code> from Google!</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Step-by-Step Google Cloud Setup Guide -->
+      <div class="card">
+        <h3 class="card-title" style="margin-bottom: 0.75rem;"><span>⚡</span> Setup Guide for <code>abhiqmar</code></h3>
+        
+        <ol style="margin-left: 1.25rem; font-size: 0.85rem; line-height: 1.7; color: var(--text-secondary);">
+          <li>
+            In <a href="https://console.cloud.google.com" target="_blank" style="color:var(--accent-sky);">Google Cloud Console</a>, ensure <strong>Google Sheets API</strong> is enabled.
+          </li>
+          <li>
+            Go to <strong>APIs & Services → Credentials → Create Credentials → OAuth client ID</strong>.
+            <ul style="margin-left: 1rem; margin-top: 0.25rem;">
+              <li>Application type: <strong>Web application</strong></li>
+              <li>Name: <code>AK Wealth Portfolio Web</code></li>
+              <li>Authorized JavaScript origins:
+                <br />• <code>http://localhost:8000</code> (for local testing)
+                <br />• <code>https://abhiqmar.github.io</code> (your GitHub Pages domain)
+              </li>
+            </ul>
+          </li>
+          <li>
+            Copy your <strong>Client ID</strong> and paste it in the Settings dialog below.
+          </li>
+          <li>
+            Your Spreadsheet ID is pre-configured:
+            <br />
+            <code><strong>1RMO7qp-_m8GWbemlUNqdEDNijm33Q1Gs</strong></code>
+            <br />
+            <span style="font-size:0.75rem; color:var(--text-muted);">(from <code>https://docs.google.com/spreadsheets/d/1RMO7qp-_m8GWbemlUNqdEDNijm33Q1Gs/edit?gid=1201843379</code>)</span>
+          </li>
+        </ol>
+
+        <div style="margin-top: 1.25rem;">
+          <button class="btn btn-primary" onclick="openModal('settings-modal')">
+            <span>⚙️ Open Sync Configuration Modal</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ==================== HOLDING MODAL (ADD / EDIT ASSET) ==================== -->
+  <div class="modal-overlay" id="holding-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="holding-modal-title"><span>➕</span> Add / Edit Investment Holding</h2>
+        <button class="modal-close-btn" id="close-holding-modal">&times;</button>
+      </div>
+
+      <form id="holding-form">
+        <div class="form-group">
+          <label class="form-label" for="holding-name-input">Asset / Investment Name</label>
+          <input type="text" id="holding-name-input" class="form-input" placeholder="e.g. MF eq, Equity, Uber stock, Land..." required />
+        </div>
+
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+          <div class="form-group" style="flex: 1; min-width: 180px;">
+            <label class="form-label" for="holding-category-select">Asset Category</label>
+            <select id="holding-category-select" class="form-input">
+              <option value="Indian Equity">Indian Equity (Demat)</option>
+              <option value="Mutual Funds">Mutual Funds (Eq / Arb)</option>
+              <option value="Global Equity">Global / US Equity</option>
+              <option value="Employer Stock">Employer Stock ($UBER)</option>
+              <option value="Liquid / Cash">Liquid / Cash & Savings</option>
+              <option value="Fixed Income">Fixed Income & FD</option>
+              <option value="Real Estate">Real Estate & Land</option>
+              <option value="Retirement">Retirement (EPF/PPF/NPS)</option>
+              <option value="PMS">PMS (Portfolio Mgmt)</option>
+              <option value="Unlisted Equity">Unlisted Equity</option>
+            </select>
+          </div>
+
+          <!-- Family Member / Entity Selector -->
+          <div class="form-group" style="flex: 1; min-width: 180px;">
+            <label class="form-label" for="holding-entity-select">Entity / Account Holder</label>
+            <select id="holding-entity-select" class="form-input" style="font-weight: 700;">
+              <option value="Naresh">Naresh</option>
+              <option value="Rekha">Rekha</option>
+              <option value="HUF">HUF</option>
+              <option value="CUSTOM">➕ Add New Entity Name...</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group" id="holding-custom-entity-group" style="display: none;">
+          <label class="form-label" for="holding-custom-entity">Custom Entity / Member Name</label>
+          <input type="text" id="holding-custom-entity" class="form-input" placeholder="Type name (e.g. Child Name, Family Trust, Company...)" />
+        </div>
+
+        <!-- Dynamic Year Valuation Inputs -->
+        <label class="form-label" style="margin-top: 0.5rem;">Multi-Year Valuations (₹ Lakhs)</label>
+        <div id="holding-year-inputs-container" style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem;">
+          <!-- Populated dynamically (2024, 2025, 2026) -->
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="holding-notes-input">Notes / Brokerage Details</label>
+          <input type="text" id="holding-notes-input" class="form-input" placeholder="Optional notes (e.g. Zerodha, Folio #, RSU grant...)" />
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('holding-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Holding</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== BANK MODAL ==================== -->
+  <div class="modal-overlay" id="bank-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="bank-modal-title"><span>➕</span> Add / Update Bank Account</h2>
+        <button class="modal-close-btn" id="close-bank-modal">&times;</button>
+      </div>
+
+      <form id="bank-form">
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+          <div class="form-group" style="flex: 2; min-width: 220px;">
+            <label class="form-label" for="bank-select-dropdown">Select National / Major Indian Bank</label>
+            <select id="bank-select-dropdown" class="form-input" style="font-weight: 600; cursor: pointer;">
+              <option value="">-- Select Bank from List --</option>
+              <optgroup label="🏛️ Nationalized / Public Sector Banks">
+                <option value="SBI">State Bank of India (SBI)</option>
+                <option value="PNB">Punjab National Bank (PNB)</option>
+                <option value="Bank of Baroda">Bank of Baroda (BOB)</option>
+                <option value="Canara">Canara Bank</option>
+                <option value="Union">Union Bank of India</option>
+                <option value="BOI">Bank of India (BOI)</option>
+                <option value="Indian Bank">Indian Bank</option>
+                <option value="Central Bank">Central Bank of India</option>
+                <option value="IOB">Indian Overseas Bank (IOB)</option>
+                <option value="UCO">UCO Bank</option>
+                <option value="Bank of Maharashtra">Bank of Maharashtra</option>
+                <option value="Punjab & Sind">Punjab & Sind Bank</option>
+              </optgroup>
+              <optgroup label="🏦 Leading Scheduled Private Banks">
+                <option value="HDFC">HDFC Bank</option>
+                <option value="ICICI">ICICI Bank</option>
+                <option value="Axis">Axis Bank</option>
+                <option value="Kotak">Kotak Mahindra Bank</option>
+                <option value="IDFC">IDFC FIRST Bank</option>
+                <option value="IndusInd">IndusInd Bank</option>
+                <option value="Federal">Federal Bank</option>
+                <option value="Yes">Yes Bank</option>
+              </optgroup>
+              <optgroup label="✏️ Other">
+                <option value="CUSTOM">Custom / Other Bank Name...</option>
+              </optgroup>
+            </select>
+          </div>
+
+          <!-- Account Holder / Entity -->
+          <div class="form-group" style="flex: 1; min-width: 150px;">
+            <label class="form-label" for="bank-entity-select">Account Holder</label>
+            <select id="bank-entity-select" class="form-input" style="font-weight: 700;">
+              <!-- Populated dynamically by app.js based on profile -->
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group" id="custom-bank-group" style="display: none;">
+          <label class="form-label" for="bank-name-input">Custom Bank Name</label>
+          <input type="text" id="bank-name-input" class="form-input" placeholder="Type custom bank name..." />
+        </div>
+          
+        <!-- Quick select chips -->
+        <div class="bank-chips-container" style="margin-top: 0.25rem;">
+          <span style="font-size:0.75rem; color:var(--text-muted); align-self:center; margin-right:4px;">Quick select:</span>
+          <button type="button" class="bank-chip" data-bank="SBI">SBI</button>
+          <button type="button" class="bank-chip" data-bank="HDFC">HDFC</button>
+          <button type="button" class="bank-chip" data-bank="ICICI">ICICI</button>
+          <button type="button" class="bank-chip" data-bank="Axis">Axis</button>
+          <button type="button" class="bank-chip" data-bank="IDFC">IDFC</button>
+          <button type="button" class="bank-chip" data-bank="Kotak">Kotak</button>
+          <button type="button" class="bank-chip" data-bank="PNB">PNB</button>
+          <button type="button" class="bank-chip" data-bank="Bank of Baroda">BoB</button>
+          <button type="button" class="bank-chip" data-bank="Canara">Canara</button>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="bank-savings-input">Savings Account Balance (in ₹ Lakhs)</label>
+          <input type="number" id="bank-savings-input" class="form-input" step="0.001" min="0" placeholder="e.g. 21.930 (= ₹21,93,000)" />
+          <div class="form-help">Enter amount in ₹ Lakhs. For ₹21.93 Lakhs enter 21.930. Enter 0 if no savings in this bank.</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="bank-fd-input">Fixed Deposit (FD) Amount (in ₹ Lakhs)</label>
+          <input type="number" id="bank-fd-input" class="form-input" step="0.001" min="0" placeholder="e.g. 1.290 (= ₹1,29,000)" />
+          <div class="form-help">Enter amount in ₹ Lakhs. For ₹1.29 Lakhs enter 1.290. Enter 0 if no FD in this bank.</div>
+        </div>
+
+        <!-- Live Calculation Preview -->
+        <div class="security-callout" style="background: rgba(14, 165, 233, 0.08); border-color: rgba(14, 165, 233, 0.3);">
+          <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); font-weight:600;">Total Balance with This Bank:</div>
+          <div id="bank-total-preview" style="font-size:1.15rem; font-weight:700; color:var(--accent-sky); margin-top:2px;">₹0.00 Lakhs</div>
+          <div style="font-size:0.75rem; color:var(--text-secondary); margin-top:4px;">
+            💡 Automatically updates "Savings a/c" and "FD" in your master net worth ledger.
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('bank-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Bank Account</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== SETTINGS MODAL ==================== -->
+  <div class="modal-overlay" id="settings-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title"><span>⚙️</span> Sync & Security Settings</h2>
+        <button class="modal-close-btn" id="close-settings-modal">&times;</button>
+      </div>
+
+      <form id="settings-form">
+        <div class="security-callout" style="margin-bottom: 1.25rem;">
+          🔒 All credentials entered here are saved strictly in your local browser's <code>localStorage</code>. Nothing is committed to GitHub.
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="setting-client-id">Google OAuth 2.0 Client ID (Public Identifier)</label>
+          <input type="text" id="setting-client-id" class="form-input" placeholder="e.g. 123456789-xxxx.apps.googleusercontent.com" />
+          <div class="form-help">Created in Google Cloud Console. OAuth client type must be "Web application".</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="setting-sheet-id">Google Spreadsheet ID</label>
+          <input type="text" id="setting-sheet-id" class="form-input" value="1RMO7qp-_m8GWbemlUNqdEDNijm33Q1Gs" placeholder="e.g. 1RMO7qp-_m8GWbemlUNqdEDNijm33Q1Gs" />
+          <div class="form-help">Pre-configured with your Google Sheet: <code>1RMO7qp-_m8GWbemlUNqdEDNijm33Q1Gs</code></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="setting-allowed-email">Allowed User Email (Whitelist Lockdown)</label>
+          <input type="email" id="setting-allowed-email" class="form-input" placeholder="e.g. yourname@gmail.com" />
+          <div class="form-help">Optional: Enforces that only this specific Google account can view the dashboard.</div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('settings-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Settings</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container"></div>
+
+  <!-- Application JS Logic -->
+  <script src="app.js"></script>
+</body>
+</html>
