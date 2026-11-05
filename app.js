@@ -1957,6 +1957,8 @@ function updateAuthUI() {
     if (unitToggle) unitToggle.style.display = "none";
     if (fxPill) fxPill.style.display = "none";
 
+    updateGatePinUI();
+
     const overlay = document.getElementById("profile-selection-overlay");
     if (overlay) overlay.classList.remove("active");
 
@@ -2363,7 +2365,16 @@ function setupEventListeners() {
       localStorage.setItem("ak_client_id", clientId);
       localStorage.setItem("ak_sheet_id", sheetId);
       localStorage.setItem("ak_allowed_email", allowedEmail);
-      if (accessPin) localStorage.setItem("ak_access_pin", accessPin);
+      if (accessPin) {
+        if (accessPin.length < 4 || accessPin.length > 8) {
+          showToast("PIN must be between 4 and 8 digits.", "error");
+          return;
+        }
+        hashPin(accessPin).then(h => {
+          localStorage.setItem("ak_pin_hash", h);
+          localStorage.removeItem("ak_access_pin");
+        });
+      }
 
       initGoogleOAuth();
       closeModal("settings-modal");
@@ -2375,12 +2386,99 @@ function setupEventListeners() {
   if (authBtn) authBtn.addEventListener("click", handleLoginClick);
 }
 
-function handlePinUnlock() {
+// ==========================================
+// Cryptographic PIN Security (Zero-Knowledge / SHA-256)
+// ==========================================
+async function hashPin(pin) {
+  let salt = localStorage.getItem("ak_pin_salt");
+  if (!salt) {
+    const randomBytes = new Uint8Array(16);
+    crypto.getRandomValues(randomBytes);
+    salt = Array.from(randomBytes).map(b => b.toString(16).padStart(2, "0")).join("");
+    localStorage.setItem("ak_pin_salt", salt);
+  }
+  const encoder = new TextEncoder();
+  const data = encoder.encode(salt + ":" + pin);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function verifyPin(enteredPin) {
+  const storedHash = localStorage.getItem("ak_pin_hash");
+  if (!storedHash) return false;
+  const enteredHash = await hashPin(enteredPin);
+  return enteredHash === storedHash;
+}
+
+function hasConfiguredPin() {
+  return !!localStorage.getItem("ak_pin_hash");
+}
+
+function updateGatePinUI() {
+  const pinInput = document.getElementById("gate-pin-input");
+  const pinBtn = document.getElementById("gate-pin-btn");
+  const pinHelp = document.getElementById("gate-pin-help");
+
+  if (!pinInput || !pinBtn) return;
+
+  if (hasConfiguredPin()) {
+    pinInput.placeholder = "Enter Access PIN";
+    pinBtn.innerHTML = "🔓 Unlock";
+    if (pinHelp) pinHelp.textContent = "Enter your private device PIN to unlock.";
+  } else {
+    pinInput.placeholder = "Create 4-8 Digit PIN";
+    pinBtn.innerHTML = "🔒 Set PIN & Unlock";
+    if (pinHelp) pinHelp.textContent = "No default PIN. Create your private device PIN (4-8 digits).";
+  }
+}
+
+async function handlePinUnlock() {
   const pinInput = document.getElementById("gate-pin-input");
   const entered = pinInput?.value?.trim();
-  const configuredPin = localStorage.getItem("ak_access_pin") || "1234";
 
-  if (entered === configuredPin) {
+  if (!entered) {
+    showToast("Please enter a PIN.", "error");
+    return;
+  }
+
+  // Rate limit check
+  const lockoutUntil = Number(sessionStorage.getItem("ak_pin_lockout_until") || 0);
+  const now = Date.now();
+  if (lockoutUntil > now) {
+    const secsLeft = Math.ceil((lockoutUntil - now) / 1000);
+    showToast(`Too many attempts. Locked out for ${secsLeft}s.`, "error");
+    return;
+  }
+
+  // If no PIN has been initialized on this device yet
+  if (!hasConfiguredPin()) {
+    if (entered.length < 4 || entered.length > 8) {
+      showToast("PIN must be between 4 and 8 digits.", "error");
+      return;
+    }
+    const hash = await hashPin(entered);
+    localStorage.setItem("ak_pin_hash", hash);
+    localStorage.removeItem("ak_access_pin");
+
+    state.auth.isLoggedIn = true;
+    state.auth.userEmail = "device-owner";
+    state.auth.userName = "Device Owner";
+    try {
+      sessionStorage.setItem("ak_session_token", "pin_session");
+      sessionStorage.setItem("ak_session_user", JSON.stringify({ email: "device-owner", name: "Device Owner" }));
+    } catch (e) {}
+
+    showToast("Private PIN configured and dashboard unlocked! (SHA-256)", "success");
+    updateAuthUI();
+    return;
+  }
+
+  // Verify entered PIN against stored cryptographic hash
+  const isValid = await verifyPin(entered);
+  if (isValid) {
+    sessionStorage.removeItem("ak_pin_failed_attempts");
+    sessionStorage.removeItem("ak_pin_lockout_until");
+
     state.auth.isLoggedIn = true;
     state.auth.userEmail = "authorized-user";
     state.auth.userName = "Authorized User";
@@ -2388,10 +2486,20 @@ function handlePinUnlock() {
       sessionStorage.setItem("ak_session_token", "pin_session");
       sessionStorage.setItem("ak_session_user", JSON.stringify({ email: "authorized-user", name: "Authorized User" }));
     } catch (e) {}
+
     showToast("Dashboard unlocked via Access PIN!", "success");
     updateAuthUI();
   } else {
-    showToast("Incorrect PIN. Default is 1234.", "error");
+    let failed = Number(sessionStorage.getItem("ak_pin_failed_attempts") || 0) + 1;
+    sessionStorage.setItem("ak_pin_failed_attempts", String(failed));
+
+    if (failed >= 5) {
+      sessionStorage.setItem("ak_pin_lockout_until", String(Date.now() + 60000));
+      showToast("5 incorrect attempts. Locked for 60 seconds.", "error");
+    } else {
+      showToast(`Incorrect PIN. (${5 - failed} attempts remaining)`, "error");
+    }
+
     if (pinInput) {
       pinInput.value = "";
       pinInput.focus();
@@ -2404,7 +2512,7 @@ function openModal(id) {
   if (el) el.classList.add("active");
   if (id === "settings-modal") {
     const pinInp = document.getElementById("setting-access-pin");
-    if (pinInp) pinInp.value = localStorage.getItem("ak_access_pin") || "1234";
+    if (pinInp) pinInp.value = "";
   }
 }
 
