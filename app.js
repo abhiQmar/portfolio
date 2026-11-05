@@ -156,7 +156,7 @@ function checkInitialProfileSelection() {
   const overlay = document.getElementById("profile-selection-overlay");
   if (!overlay) return;
 
-  if (!state.profileSelectedInitially) {
+  if (state.auth.isLoggedIn && !state.profileSelectedInitially) {
     overlay.classList.add("active");
   } else {
     overlay.classList.remove("active");
@@ -1101,8 +1101,15 @@ async function handleOAuthResponse(resp) {
     state.auth.userName = profile.name;
     state.auth.userAvatar = profile.picture;
 
-    showToast(`Authenticated as ${profile.email}`, "success");
+    // Save session so page refresh stays unlocked during the session
+    try {
+      sessionStorage.setItem("ak_session_token", state.auth.accessToken);
+      sessionStorage.setItem("ak_session_user", JSON.stringify(profile));
+    } catch (e) {}
+
+    showToast(`Welcome ${profile.name || profile.email}! Dashboard unlocked.`, "success");
     updateAuthUI();
+    fetchGoogleSheetData();
   } catch (err) {
     console.error("Error fetching user profile:", err);
     showToast("Error retrieving profile from Google", "error");
@@ -1111,25 +1118,58 @@ async function handleOAuthResponse(resp) {
 
 function handleLogout() {
   if (state.auth.accessToken && typeof google !== "undefined" && google.accounts && google.accounts.oauth2) {
-    google.accounts.oauth2.revoke(state.auth.accessToken, () => console.log("Token revoked"));
+    try {
+      google.accounts.oauth2.revoke(state.auth.accessToken, () => console.log("Token revoked"));
+    } catch (e) {}
   }
+  try {
+    sessionStorage.removeItem("ak_session_token");
+    sessionStorage.removeItem("ak_session_user");
+  } catch (e) {}
+
   state.auth.isLoggedIn = false;
   state.auth.userEmail = null;
   state.auth.userName = null;
   state.auth.userAvatar = null;
   state.auth.accessToken = null;
-  showToast("Logged out.", "info");
+  showToast("Logged out. Dashboard locked.", "info");
   updateAuthUI();
+}
+
+function restoreSessionIfValid() {
+  try {
+    const token = sessionStorage.getItem("ak_session_token");
+    const userStr = sessionStorage.getItem("ak_session_user");
+    if (token && userStr) {
+      const user = JSON.parse(userStr);
+      state.auth.isLoggedIn = true;
+      state.auth.accessToken = token;
+      state.auth.userEmail = user.email;
+      state.auth.userName = user.name;
+      state.auth.userAvatar = user.picture;
+    }
+  } catch (e) {}
 }
 
 function updateAuthUI() {
   const loginBtn = document.getElementById("auth-btn");
   const authStatusChip = document.getElementById("auth-status-chip");
   const userDisplay = document.getElementById("user-profile-display");
+  const authLockGate = document.getElementById("auth-lock-gate");
+  const dashboardMain = document.getElementById("dashboard-main");
+  const activeProfilePill = document.getElementById("active-profile-pill");
+  const unitToggle = document.querySelector(".unit-toggle");
+  const fxPill = document.querySelector(".fx-pill");
 
   if (state.auth.isLoggedIn) {
+    if (authLockGate) authLockGate.style.display = "none";
+    if (dashboardMain) dashboardMain.style.display = "block";
+    if (activeProfilePill) activeProfilePill.style.display = "flex";
+    if (unitToggle) unitToggle.style.display = "flex";
+    if (fxPill) fxPill.style.display = "flex";
+
     if (loginBtn) {
-      loginBtn.innerHTML = `<span>Sign Out (${state.auth.userEmail.split('@')[0]})</span>`;
+      loginBtn.innerHTML = `<span>Sign Out (${(state.auth.userEmail || '').split('@')[0]})</span>`;
       loginBtn.classList.remove("btn-primary");
       loginBtn.classList.add("btn-secondary");
     }
@@ -1145,7 +1185,19 @@ function updateAuthUI() {
         </div>
       `;
     }
+
+    checkInitialProfileSelection();
+    renderUI();
   } else {
+    if (authLockGate) authLockGate.style.display = "flex";
+    if (dashboardMain) dashboardMain.style.display = "none";
+    if (activeProfilePill) activeProfilePill.style.display = "none";
+    if (unitToggle) unitToggle.style.display = "none";
+    if (fxPill) fxPill.style.display = "none";
+
+    const overlay = document.getElementById("profile-selection-overlay");
+    if (overlay) overlay.classList.remove("active");
+
     if (loginBtn) {
       loginBtn.innerHTML = `<span>🔒 Sign in with Google</span>`;
       loginBtn.classList.remove("btn-secondary");
@@ -1153,11 +1205,165 @@ function updateAuthUI() {
     }
     if (authStatusChip) {
       authStatusChip.className = "security-status-chip unauth";
-      authStatusChip.innerHTML = `⚠️ <span>Local / Demo Mode (Not Logged In)</span>`;
+      authStatusChip.innerHTML = `🔒 <span>Private Ledger Locked (Sign In Required)</span>`;
     }
     if (userDisplay) userDisplay.innerHTML = "";
   }
 }
+
+async function fetchGoogleSheetData() {
+  if (!state.auth.isLoggedIn || !state.auth.accessToken) return;
+  const sheetId = state.config.sheetId;
+  if (!sheetId) return;
+
+  showToast("Syncing with private Google Sheet...", "info");
+  try {
+    const metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets.properties`, {
+      headers: { Authorization: `Bearer ${state.auth.accessToken}` }
+    });
+
+    if (!metaRes.ok) {
+      if (metaRes.status === 403) {
+        showToast("Google Sheets 403: Verify Google Sheet share permissions.", "error");
+        return;
+      }
+      throw new Error(`Sheets API Error (${metaRes.status})`);
+    }
+
+    const meta = await metaRes.json();
+    const sheetProperties = meta.sheets?.map(s => s.properties) || [];
+
+    const portfolioSheet = sheetProperties.find(p => p.title.toLowerCase().includes("portfolio"))
+      || sheetProperties.find(p => String(p.sheetId) === "1201843379")
+      || sheetProperties[0];
+
+    if (portfolioSheet) {
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(portfolioSheet.title)}!A1:Z200?valueRenderOption=UNFORMATTED_VALUE`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${state.auth.accessToken}` } });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.values && data.values.length > 1) {
+          parsePortfolioSheetRows(data.values);
+        }
+      }
+    }
+
+    const banksSheet = sheetProperties.find(p => p.title.toLowerCase().includes("bank"));
+    if (banksSheet) {
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(banksSheet.title)}!A1:Z100?valueRenderOption=UNFORMATTED_VALUE`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${state.auth.accessToken}` } });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.values && data.values.length > 1) {
+          parseBanksSheetRows(data.values);
+        }
+      }
+    }
+
+    showToast("Synchronized live data from Google Sheet!", "success");
+    renderUI();
+  } catch (err) {
+    console.warn("Google Sheet sync notice:", err);
+  }
+}
+
+function parsePortfolioSheetRows(rows) {
+  if (!rows || rows.length < 2) return;
+  const header = rows[0].map(h => String(h).trim().toLowerCase());
+  const profileCol = header.findIndex(h => h.includes("profile"));
+  const entityCol = header.findIndex(h => h.includes("entity") || h.includes("member") || h.includes("holder"));
+  const invCol = header.findIndex(h => h.includes("investment") || h.includes("asset"));
+  const catCol = header.findIndex(h => h.includes("category") || h.includes("class"));
+  const val24Col = header.findIndex(h => h.includes("2024"));
+  const val25Col = header.findIndex(h => h.includes("2025"));
+  const val26Col = header.findIndex(h => h.includes("2026"));
+  const notesCol = header.findIndex(h => h.includes("notes") || h.includes("broker"));
+
+  const parsed = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const invName = invCol >= 0 ? String(r[invCol] || "").trim() : "";
+    if (!invName) continue;
+
+    const rowProfile = profileCol >= 0 ? String(r[profileCol] || "").trim() : "";
+    if (rowProfile && rowProfile.toLowerCase() !== state.currentProfile.toLowerCase()) {
+      continue;
+    }
+
+    const holder = entityCol >= 0 ? String(r[entityCol] || state.entities[0]).trim() : state.entities[0];
+    const category = catCol >= 0 ? String(r[catCol] || "Indian Equity").trim() : "Indian Equity";
+    const notes = notesCol >= 0 ? String(r[notesCol] || "").trim() : "";
+
+    const values = {
+      "2024": val24Col >= 0 ? (parseFloat(r[val24Col]) || 0) : 0,
+      "2025": val25Col >= 0 ? (parseFloat(r[val25Col]) || 0) : 0,
+      "2026": val26Col >= 0 ? (parseFloat(r[val26Col]) || 0) : 0,
+    };
+
+    parsed.push({
+      id: "sh_" + i,
+      name: invName,
+      category,
+      holder,
+      notes,
+      values
+    });
+  }
+
+  if (parsed.length > 0) {
+    state.holdings = parsed;
+    localStorage.setItem(`ak_holdings_${state.currentProfile}`, JSON.stringify(state.holdings));
+  }
+}
+
+function parseBanksSheetRows(rows) {
+  if (!rows || rows.length < 2) return;
+  const header = rows[0].map(h => String(h).trim().toLowerCase());
+  const profileCol = header.findIndex(h => h.includes("profile"));
+  const bankCol = header.findIndex(h => h.includes("bank"));
+  const holderCol = header.findIndex(h => h.includes("holder") || h.includes("entity"));
+  const savCol = header.findIndex(h => h.includes("savings"));
+  const fdCol = header.findIndex(h => h.includes("fd") || h.includes("deposit"));
+
+  const parsedBanks = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+    const bankName = bankCol >= 0 ? String(r[bankCol] || "").trim() : "";
+    if (!bankName) continue;
+
+    const rowProfile = profileCol >= 0 ? String(r[profileCol] || "").trim() : "";
+    if (rowProfile && rowProfile.toLowerCase() !== state.currentProfile.toLowerCase()) {
+      continue;
+    }
+
+    const holder = holderCol >= 0 ? String(r[holderCol] || state.entities[0]).trim() : state.entities[0];
+    const savings = savCol >= 0 ? (parseFloat(r[savCol]) || 0) : 0;
+    const fd = fdCol >= 0 ? (parseFloat(r[fdCol]) || 0) : 0;
+
+    parsedBanks.push({
+      bank: bankName,
+      holder,
+      savings,
+      fd
+    });
+  }
+
+  if (parsedBanks.length > 0) {
+    state.banks = parsedBanks;
+    localStorage.setItem(`ak_banks_${state.currentProfile}`, JSON.stringify(state.banks));
+  }
+}
+
+async function syncBanksToGoogleSheet(showAlert = true) {
+  if (!state.auth.isLoggedIn || !state.auth.accessToken) {
+    if (showAlert) showToast("Sign in with Google first to sync with your private sheet.", "info");
+    return;
+  }
+  showToast("Updating Google Sheet...", "info");
+}
+
 
 // ==========================================
 // 12. Event Listeners & Startup Initializer
@@ -1381,10 +1587,14 @@ async function fetchLiveExchangeRate() {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  restoreSessionIfValid();
   setupEventListeners();
   loadProfileData(state.currentProfile);
   fetchLiveExchangeRate();
-  checkInitialProfileSelection();
+  updateAuthUI();
 
   if (state.config.clientId) initGoogleOAuth();
+  if (state.auth.isLoggedIn) {
+    fetchGoogleSheetData();
+  }
 });

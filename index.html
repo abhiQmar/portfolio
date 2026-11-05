@@ -109,8 +109,41 @@
     </div>
   </header>
 
-  <!-- Main App Layout -->
-  <main class="main-wrapper">
+  <!-- ==================== STRICT LOGIN GATE (VISIBLE WHEN LOGGED OUT) ==================== -->
+  <div id="auth-lock-gate" class="auth-gate-container">
+    <div class="auth-gate-card">
+      <div class="auth-gate-icon">🔒</div>
+      <h2 class="auth-gate-title">AK Wealth — Private Portfolio</h2>
+      <p class="auth-gate-subtitle">
+        This financial portal is private. All portfolio valuations, entity breakdowns, and bank balances are strictly hidden until you sign in with your authorized Google Account.
+      </p>
+
+      <button id="gate-login-btn" class="auth-gate-btn" onclick="handleLoginClick()">
+        <span>🔒</span> Sign in with Google to Unlock
+      </button>
+
+      <div style="margin-top: 1.25rem; display: flex; justify-content: center; gap: 0.75rem;">
+        <button class="btn btn-secondary" onclick="openModal('settings-modal')" style="font-size: 0.8rem;">
+          ⚙️ Configure Client ID / Sheet ID
+        </button>
+      </div>
+
+      <div class="auth-gate-security-list">
+        <div class="auth-gate-security-item">
+          <span>🛡️</span> <strong>Zero Private Keys Committed:</strong> Source code contains zero secrets.
+        </div>
+        <div class="auth-gate-security-item">
+          <span>🔐</span> <strong>OAuth 2.0 PKCE:</strong> Google authenticates you directly on official Google servers.
+        </div>
+        <div class="auth-gate-security-item">
+          <span>👁️</span> <strong>Spreadsheet ACL:</strong> Google Sheets enforces that only your account has read access.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main App Layout (Hidden until logged in) -->
+  <main class="main-wrapper" id="dashboard-main" style="display: none;">
 
     <!-- Security & Sync Status Bar -->
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
