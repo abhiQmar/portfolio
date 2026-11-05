@@ -204,6 +204,11 @@ function openProfileModal() {
   if (overlay) overlay.classList.add("active");
 }
 
+function closeProfileModal() {
+  const overlay = document.getElementById("profile-selection-overlay");
+  if (overlay) overlay.classList.remove("active");
+}
+
 // ==========================================
 // 3. Indian Currency Formatting Helpers
 // ==========================================
@@ -1949,7 +1954,6 @@ function updateAuthUI() {
     }
 
     checkInitialProfileSelection();
-    renderUI();
   } else {
     if (authLockGate) authLockGate.style.display = "flex";
     if (dashboardMain) dashboardMain.style.display = "none";
@@ -2220,6 +2224,14 @@ function setupEventListeners() {
   const activeProfPill = document.getElementById("active-profile-pill");
   if (activeProfPill) activeProfPill.addEventListener("click", openProfileModal);
 
+  // Profile overlay backdrop click to close
+  const profOverlay = document.getElementById("profile-selection-overlay");
+  if (profOverlay) {
+    profOverlay.addEventListener("click", (e) => {
+      if (e.target === profOverlay) closeProfileModal();
+    });
+  }
+
   // Year Select Dropdown (Minimalist Tab 1)
   const yrSelect = document.getElementById("overview-year-select");
   if (yrSelect) {
@@ -2470,6 +2482,7 @@ async function handlePinUnlock() {
 
     showToast("Private PIN configured and dashboard unlocked! (SHA-256)", "success");
     updateAuthUI();
+    renderUI();
     return;
   }
 
@@ -2489,6 +2502,7 @@ async function handlePinUnlock() {
 
     showToast("Dashboard unlocked via Access PIN!", "success");
     updateAuthUI();
+    renderUI();
   } else {
     let failed = Number(sessionStorage.getItem("ak_pin_failed_attempts") || 0) + 1;
     sessionStorage.setItem("ak_pin_failed_attempts", String(failed));
