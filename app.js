@@ -1240,9 +1240,15 @@ async function fetchGoogleSheetData() {
     const meta = await metaRes.json();
     const sheetProperties = meta.sheets?.map(s => s.properties) || [];
 
-    const portfolioSheet = sheetProperties.find(p => p.title.toLowerCase().includes("portfolio"))
-      || sheetProperties.find(p => String(p.sheetId) === "1201843379")
-      || sheetProperties[0];
+    // First, check if there's a dedicated tab matching the active profile (e.g. "Naresh" or "Abhishek")
+    let portfolioSheet = sheetProperties.find(p => p.title.toLowerCase() === state.currentProfile.toLowerCase());
+    
+    // If not, check for "Portfolio" or default gid 1201843379 or first tab
+    if (!portfolioSheet) {
+      portfolioSheet = sheetProperties.find(p => p.title.toLowerCase().includes("portfolio"))
+        || sheetProperties.find(p => String(p.sheetId) === "1201843379")
+        || sheetProperties[0];
+    }
 
     if (portfolioSheet) {
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(portfolioSheet.title)}!A1:Z200?valueRenderOption=UNFORMATTED_VALUE`;
@@ -1277,14 +1283,16 @@ async function fetchGoogleSheetData() {
 function parsePortfolioSheetRows(rows) {
   if (!rows || rows.length < 2) return;
   const header = rows[0].map(h => String(h).trim().toLowerCase());
-  const profileCol = header.findIndex(h => h.includes("profile"));
-  const entityCol = header.findIndex(h => h.includes("entity") || h.includes("member") || h.includes("holder"));
-  const invCol = header.findIndex(h => h.includes("investment") || h.includes("asset"));
-  const catCol = header.findIndex(h => h.includes("category") || h.includes("class"));
+  const profileCol = header.findIndex(h => h.includes("profile") || h.includes("portfolio") || h.includes("workspace"));
+  const entityCol = header.findIndex(h => h.includes("member") || h.includes("name") || h.includes("entity") || h.includes("holder") || h.includes("owner") || h.includes("person"));
+  const dateCol = header.findIndex(h => h.includes("date") || h.includes("as on") || h.includes("time"));
+  const invCol = header.findIndex(h => h.includes("investment") || h.includes("asset") || h.includes("holding") || h.includes("instrument") || h.includes("particular"));
+  const catCol = header.findIndex(h => h.includes("category") || h.includes("class") || h.includes("type"));
   const val24Col = header.findIndex(h => h.includes("2024"));
   const val25Col = header.findIndex(h => h.includes("2025"));
   const val26Col = header.findIndex(h => h.includes("2026"));
-  const notesCol = header.findIndex(h => h.includes("notes") || h.includes("broker"));
+  const generalValCol = header.findIndex(h => h === "value" || h.includes("valuation") || h.includes("amount") || h.includes("balance") || h.includes("curr"));
+  const notesCol = header.findIndex(h => h.includes("notes") || h.includes("broker") || h.includes("remark"));
 
   const parsed = [];
   for (let i = 1; i < rows.length; i++) {
@@ -1300,12 +1308,14 @@ function parsePortfolioSheetRows(rows) {
 
     const holder = entityCol >= 0 ? String(r[entityCol] || state.entities[0]).trim() : state.entities[0];
     const category = catCol >= 0 ? String(r[catCol] || "Indian Equity").trim() : "Indian Equity";
+    const dateVal = dateCol >= 0 ? String(r[dateCol] || "").trim() : "";
     const notes = notesCol >= 0 ? String(r[notesCol] || "").trim() : "";
 
+    const fallbackVal = generalValCol >= 0 ? (parseFloat(r[generalValCol]) || 0) : 0;
     const values = {
       "2024": val24Col >= 0 ? (parseFloat(r[val24Col]) || 0) : 0,
       "2025": val25Col >= 0 ? (parseFloat(r[val25Col]) || 0) : 0,
-      "2026": val26Col >= 0 ? (parseFloat(r[val26Col]) || 0) : 0,
+      "2026": val26Col >= 0 ? (parseFloat(r[val26Col]) || fallbackVal) : fallbackVal,
     };
 
     parsed.push({
@@ -1313,6 +1323,7 @@ function parsePortfolioSheetRows(rows) {
       name: invName,
       category,
       holder,
+      date: dateVal,
       notes,
       values
     });
@@ -1327,11 +1338,11 @@ function parsePortfolioSheetRows(rows) {
 function parseBanksSheetRows(rows) {
   if (!rows || rows.length < 2) return;
   const header = rows[0].map(h => String(h).trim().toLowerCase());
-  const profileCol = header.findIndex(h => h.includes("profile"));
-  const bankCol = header.findIndex(h => h.includes("bank"));
-  const holderCol = header.findIndex(h => h.includes("holder") || h.includes("entity"));
-  const savCol = header.findIndex(h => h.includes("savings"));
-  const fdCol = header.findIndex(h => h.includes("fd") || h.includes("deposit"));
+  const profileCol = header.findIndex(h => h.includes("profile") || h.includes("portfolio"));
+  const bankCol = header.findIndex(h => h.includes("bank") || h.includes("institution"));
+  const holderCol = header.findIndex(h => h.includes("holder") || h.includes("member") || h.includes("name") || h.includes("entity") || h.includes("owner"));
+  const savCol = header.findIndex(h => h.includes("savings") || h.includes("sb"));
+  const fdCol = header.findIndex(h => h.includes("fd") || h.includes("deposit") || h.includes("term"));
 
   const parsedBanks = [];
   for (let i = 1; i < rows.length; i++) {
