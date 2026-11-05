@@ -121,9 +121,22 @@
         <span>🔒</span> Sign in with Google to Unlock
       </button>
 
+      <div style="display: flex; align-items: center; gap: 0.75rem; margin: 1.25rem 0; width: 100%;">
+        <hr style="flex: 1; border: none; border-top: 1px solid var(--border-subtle);" />
+        <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">or quick access PIN</span>
+        <hr style="flex: 1; border: none; border-top: 1px solid var(--border-subtle);" />
+      </div>
+
+      <div style="display: flex; gap: 0.5rem; justify-content: center; width: 100%; max-width: 320px; margin: 0 auto;">
+        <input type="password" id="gate-pin-input" class="form-input" placeholder="PIN (Default: 1234)" style="text-align: center; letter-spacing: 0.25em; font-size: 1.05rem; width: 190px;" maxlength="8" onkeydown="if(event.key==='Enter') handlePinUnlock()" />
+        <button type="button" class="btn btn-secondary" onclick="handlePinUnlock()" style="white-space: nowrap; font-weight: 700;">
+          🔓 Unlock
+        </button>
+      </div>
+
       <div style="margin-top: 1.25rem; display: flex; justify-content: center; gap: 0.75rem;">
         <button class="btn btn-secondary" onclick="openModal('settings-modal')" style="font-size: 0.8rem;">
-          ⚙️ Configure Client ID / Sheet ID
+          ⚙️ Configure Client ID / Settings
         </button>
       </div>
 
@@ -730,6 +743,12 @@
           <label class="form-label" for="setting-allowed-email">Allowed User Email (Whitelist Lockdown)</label>
           <input type="email" id="setting-allowed-email" class="form-input" placeholder="e.g. yourname@gmail.com" />
           <div class="form-help">Optional: Enforces that only this specific Google account can view the dashboard.</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="setting-access-pin">Quick Access PIN</label>
+          <input type="password" id="setting-access-pin" class="form-input" placeholder="Default: 1234" maxlength="8" />
+          <div class="form-help">Set a custom 4-8 digit PIN to quickly unlock locally without entering Google credentials.</div>
         </div>
 
         <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">

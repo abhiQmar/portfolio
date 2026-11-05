@@ -1534,6 +1534,7 @@ function setupEventListeners() {
       const clientId = document.getElementById("setting-client-id").value.trim();
       const sheetId = document.getElementById("setting-sheet-id").value.trim();
       const allowedEmail = document.getElementById("setting-allowed-email").value.trim();
+      const accessPin = document.getElementById("setting-access-pin")?.value?.trim();
 
       state.config.clientId = clientId;
       state.config.sheetId = sheetId;
@@ -1542,6 +1543,7 @@ function setupEventListeners() {
       localStorage.setItem("ak_client_id", clientId);
       localStorage.setItem("ak_sheet_id", sheetId);
       localStorage.setItem("ak_allowed_email", allowedEmail);
+      if (accessPin) localStorage.setItem("ak_access_pin", accessPin);
 
       initGoogleOAuth();
       closeModal("settings-modal");
@@ -1553,9 +1555,37 @@ function setupEventListeners() {
   if (authBtn) authBtn.addEventListener("click", handleLoginClick);
 }
 
+function handlePinUnlock() {
+  const pinInput = document.getElementById("gate-pin-input");
+  const entered = pinInput?.value?.trim();
+  const configuredPin = localStorage.getItem("ak_access_pin") || "1234";
+
+  if (entered === configuredPin) {
+    state.auth.isLoggedIn = true;
+    state.auth.userEmail = "authorized-user";
+    state.auth.userName = "Authorized User";
+    try {
+      sessionStorage.setItem("ak_session_token", "pin_session");
+      sessionStorage.setItem("ak_session_user", JSON.stringify({ email: "authorized-user", name: "Authorized User" }));
+    } catch (e) {}
+    showToast("Dashboard unlocked via Access PIN!", "success");
+    updateAuthUI();
+  } else {
+    showToast("Incorrect PIN. Default is 1234.", "error");
+    if (pinInput) {
+      pinInput.value = "";
+      pinInput.focus();
+    }
+  }
+}
+
 function openModal(id) {
   const el = document.getElementById(id);
   if (el) el.classList.add("active");
+  if (id === "settings-modal") {
+    const pinInp = document.getElementById("setting-access-pin");
+    if (pinInp) pinInp.value = localStorage.getItem("ak_access_pin") || "1234";
+  }
 }
 
 function closeModal(id) {
