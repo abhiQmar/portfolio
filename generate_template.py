@@ -192,6 +192,65 @@ for idx, r_data in enumerate(broker_rows):
             cell.alignment = Alignment(horizontal="right")
             cell.number_format = '#,##0.00'
 
+# ----------------- Tab 4: Snapshots (Dated Valuation Ledger) -----------------
+ws_snap = wb.create_sheet(title="Snapshots")
+ws_snap.merge_cells("A1:H1")
+ws_snap["A1"] = "Periodic Valuation Snapshots Ledger"
+ws_snap["A1"].font = TITLE_FONT
+
+ws_snap.merge_cells("A2:H2")
+ws_snap["A2"] = "Mandatory Date on every row | Enables automated XIRR and historical delta analysis"
+ws_snap["A2"].font = SUBTITLE_FONT
+
+snap_headers = ["Date", "Profile", "Member", "Asset Class", "Investment", "Valuation (₹ L)", "Status", "Notes"]
+for col_num, h in enumerate(snap_headers, 1):
+    cell = ws_snap.cell(row=4, column=col_num)
+    cell.value = h
+    cell.font = HEADER_FONT
+    cell.fill = HEADER_FILL
+    cell.alignment = Alignment(horizontal="center" if col_num <= 4 else ("right" if col_num == 6 else "left"))
+
+snapshot_rows = [
+    ("2026-06-20", "Naresh", "Naresh", "Liquid / Cash", "Savings a/c", 55.313, "FINAL", "Across 6 Banks"),
+    ("2026-06-20", "Naresh", "Rekha", "Fixed Income", "FD", 1.290, "FINAL", "SBI Fixed Deposit"),
+    ("2026-06-20", "Naresh", "HUF", "Indian Equity", "Equity", 62.330, "FINAL", "Direct Equities (Zerodha)"),
+    ("2026-06-20", "Naresh", "Naresh", "Mutual Funds", "MF eq", 182.500, "FINAL", "Equity Mutual Funds"),
+    ("2026-06-20", "Naresh", "Rekha", "Mutual Funds", "MF arbitrage", 14.500, "FINAL", "Arbitrage Funds"),
+    ("2026-06-20", "Naresh", "Naresh", "Global Equity", "US equity", 71.190, "FINAL", "IBKR + Vested"),
+    ("2026-06-20", "Naresh", "HUF", "Fixed Income", "Bonds in demat", 0.000, "FINAL", "Demat Bonds"),
+    ("2026-06-20", "Naresh", "HUF", "Real Estate", "Fraction real estate", 25.000, "FINAL", "Commercial Real Estate"),
+    ("2026-06-20", "Naresh", "Naresh", "Employer Stock", "Uber stock", 412.530, "FINAL", "$UBER RSUs / Equity"),
+    ("2026-06-20", "Naresh", "Naresh", "Retirement", "EPF", 37.000, "FINAL", "Employee Provident Fund"),
+    ("2026-06-20", "Naresh", "Rekha", "Retirement", "PPF", 28.270, "FINAL", "Public Provident Fund"),
+    ("2026-06-20", "Naresh", "HUF", "Real Estate", "Land", 20.000, "FINAL", "Physical Land"),
+    ("2026-06-20", "Naresh", "Naresh", "Unlisted Equity", "Fk equity", 27.620, "FINAL", "Flipkart / Private Equity"),
+    ("2026-06-20", "Naresh", "Naresh", "Retirement", "NPS", 0.836, "FINAL", "National Pension Scheme"),
+    ("2026-06-20", "Naresh", "HUF", "PMS", "PMS", 62.220, "FINAL", "Portfolio Management Services"),
+    ("2026-06-20", "Naresh", "Rekha", "Fixed Income", "post office", 0.000, "FINAL", "Post Office Small Savings"),
+    ("2026-06-20", "Abhishek", "Abhishek", "Employer Stock", "Uber stock", 412.530, "FINAL", "$UBER RSUs & Grants"),
+    ("2026-06-20", "Abhishek", "Abhishek", "Global Equity", "US Demat (IBKR)", 71.190, "FINAL", "US Equities & Index Funds"),
+    ("2026-06-20", "Abhishek", "Abhishek", "Indian Equity", "Direct Equity", 62.330, "FINAL", "Zerodha Demat Portfolio"),
+    ("2026-06-20", "Abhishek", "Abhishek", "Mutual Funds", "Mutual Funds", 197.000, "FINAL", "Active Growth Mutual Funds"),
+    ("2026-06-20", "Abhishek", "Abhishek", "Liquid / Cash", "Bank Accounts", 55.313, "FINAL", "Salary & Savings Balances"),
+    ("2026-06-20", "Abhishek", "Abhishek", "Fixed Income", "Fixed Deposits", 1.290, "FINAL", "Emergency Term Deposit"),
+    ("2026-06-20", "Abhishek", "Abhishek", "Retirement", "EPF & NPS", 65.836, "FINAL", "Retirement Accounts"),
+    ("2026-06-20", "Abhishek", "Abhishek", "Real Estate", "Real Estate Holdings", 45.000, "FINAL", "Commercial & Land"),
+]
+
+for idx, r_data in enumerate(snapshot_rows):
+    r = 5 + idx
+    for c_idx, val in enumerate(r_data, 1):
+        cell = ws_snap.cell(row=r, column=c_idx, value=val)
+        cell.font = DATA_FONT
+        cell.border = thin_border
+        if c_idx in (1, 2, 3, 4, 7):
+            cell.alignment = Alignment(horizontal="center")
+        elif c_idx == 6:
+            cell.alignment = Alignment(horizontal="right")
+            cell.number_format = '#,##0.000'
+        else:
+            cell.alignment = Alignment(horizontal="left")
+
 # Auto fit column widths
 for sheet in wb.worksheets:
     for col in sheet.columns:

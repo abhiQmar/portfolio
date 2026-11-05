@@ -95,7 +95,7 @@ const state = {
   selectedEntity: "ALL",
   usdInrRate: 86.50,
   activeUnit: "cr",
-  activeTab: "overview",
+  activeTab: "snapshot",
   searchQuery: "",
   editingHoldingId: null,
   editingBankName: null,
@@ -115,6 +115,15 @@ const state = {
     singleAllocation: null,
     entityAllocation: null,
     multiYearTrend: null,
+  },
+  snapshot: {
+    date: new Date().toISOString().split("T")[0],
+    entityFilter: "ALL",
+    draftValues: {},
+    draftNotes: {},
+    draftSavedAt: null,
+    hasUnsavedChanges: false,
+    autoSaveTimer: null,
   }
 };
 
@@ -130,6 +139,19 @@ function loadProfileData(profileName) {
   const storedHoldings = localStorage.getItem(`ak_holdings_${profileName}`);
   state.holdings = storedHoldings ? JSON.parse(storedHoldings) : JSON.parse(JSON.stringify(profileCfg.defaultHoldings));
 
+  // Initialize and ensure dated history for each holding
+  state.holdings.forEach(h => {
+    if (!h.history || !Array.isArray(h.history) || h.history.length === 0) {
+      h.history = [];
+      if (h.values) {
+        if (h.values["2024"] !== undefined) h.history.push({ date: "2024-03-31", value: Number(h.values["2024"]) || 0 });
+        if (h.values["2025"] !== undefined) h.history.push({ date: "2025-03-31", value: Number(h.values["2025"]) || 0 });
+        if (h.values["2026"] !== undefined) h.history.push({ date: h.date || "2026-06-20", value: Number(h.values["2026"]) || 0 });
+      }
+    }
+    h.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+  });
+
   const storedBanks = localStorage.getItem(`ak_banks_${profileName}`);
   state.banks = storedBanks ? JSON.parse(storedBanks) : JSON.parse(JSON.stringify(profileCfg.defaultBanks));
 
@@ -138,6 +160,8 @@ function loadProfileData(profileName) {
 
   // Reset filter
   state.selectedEntity = "ALL";
+  state.snapshot.draftValues = {};
+  state.snapshot.draftNotes = {};
 
   // Update profile pill in header
   const profilePill = document.getElementById("active-profile-pill");
@@ -298,6 +322,714 @@ function computeMetricsForYear(year, entity = "ALL") {
     entityTotals,
     filteredHoldings
   };
+}
+
+// ==========================================
+// 4B. Date Formatting & XIRR Calculation Engine
+// ==========================================
+
+function formatDisplayDate(dateStr) {
+  if (!dateStr) return "-";
+  try {
+    const parts = dateStr.split("-");
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      const day = String(d.getDate()).padStart(2, "0");
+      const mon = String(d.getMonth() + 1).padStart(2, "0");
+      const yr = d.getFullYear();
+      return `${day}/${mon}/${yr}`;
+    }
+  } catch (e) {}
+  return dateStr;
+}
+
+/**
+ * Newton-Raphson XIRR solver for irregular dated cash flows
+ * cashFlows: [ { date: Date, amount: number } ]
+ */
+function calculateXIRR(cashFlows) {
+  if (!cashFlows || cashFlows.length < 2) return null;
+
+  let hasPos = false;
+  let hasNeg = false;
+  for (const cf of cashFlows) {
+    if (cf.amount > 0) hasPos = true;
+    if (cf.amount < 0) hasNeg = true;
+  }
+  if (!hasPos || !hasNeg) return null;
+
+  const d0 = cashFlows[0].date.getTime();
+  const dayOfYear = 365.25 * 24 * 3600 * 1000;
+
+  function npv(rate) {
+    let sum = 0;
+    for (const cf of cashFlows) {
+      const dt = (cf.date.getTime() - d0) / dayOfYear;
+      sum += cf.amount / Math.pow(1 + rate, dt);
+    }
+    return sum;
+  }
+
+  function dnpv(rate) {
+    let sum = 0;
+    for (const cf of cashFlows) {
+      const dt = (cf.date.getTime() - d0) / dayOfYear;
+      sum -= (dt * cf.amount) / Math.pow(1 + rate, dt + 1);
+    }
+    return sum;
+  }
+
+  let rate = 0.1; // initial 10%
+  const maxIter = 50;
+  const tol = 1e-5;
+
+  for (let i = 0; i < maxIter; i++) {
+    const val = npv(rate);
+    const deriv = dnpv(rate);
+
+    if (Math.abs(val) < tol) return rate;
+    if (Math.abs(deriv) < 1e-9) break;
+
+    const nextRate = rate - val / deriv;
+    if (Math.abs(nextRate - rate) < tol) return nextRate;
+    if (nextRate <= -0.99 || isNaN(nextRate) || !isFinite(nextRate)) break;
+    rate = nextRate;
+  }
+
+  // Fallback to CAGR
+  const initial = -cashFlows[0].amount;
+  const final = cashFlows[cashFlows.length - 1].amount;
+  const years = (cashFlows[cashFlows.length - 1].date.getTime() - d0) / dayOfYear;
+  if (initial > 0 && final > 0 && years > 0.08) {
+    return Math.pow(final / initial, 1 / years) - 1;
+  }
+
+  return null;
+}
+
+/**
+ * Returns immediate prior historical valuation for a holding before targetDateStr
+ */
+function getPriorValuation(holding, targetDateStr) {
+  if (!holding) return null;
+  const targetTime = new Date(targetDateStr).getTime();
+
+  if (holding.history && holding.history.length > 0) {
+    const priors = holding.history.filter(h => {
+      const t = new Date(h.date).getTime();
+      return !isNaN(t) && t < targetTime && (Number(h.value) || 0) > 0;
+    });
+    if (priors.length > 0) {
+      return priors[priors.length - 1];
+    }
+  }
+
+  // Fallback to year values
+  if (holding.values) {
+    const targetYr = parseInt(targetDateStr.substring(0, 4), 10);
+    const candidateYears = Object.keys(holding.values)
+      .map(y => parseInt(y, 10))
+      .filter(y => !isNaN(y) && y < targetYr)
+      .sort((a, b) => b - a);
+
+    if (candidateYears.length > 0) {
+      const yr = String(candidateYears[0]);
+      return {
+        date: `${yr}-03-31`,
+        value: Number(holding.values[yr]) || 0
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Calculates holding annualized return (XIRR/CAGR)
+ */
+function calculateHoldingXIRR(holding, targetDateStr, currentVal) {
+  if (!holding || isNaN(currentVal) || currentVal <= 0) return null;
+  const targetDate = new Date(targetDateStr);
+  if (isNaN(targetDate.getTime())) return null;
+
+  const history = holding.history || [];
+  const validPriors = history.filter(h => new Date(h.date).getTime() < targetDate.getTime() && Number(h.value) > 0);
+
+  if (validPriors.length === 0) {
+    const prior = getPriorValuation(holding, targetDateStr);
+    if (!prior || prior.value <= 0) return null;
+    const priorDate = new Date(prior.date);
+    const dayOfYear = 365.25 * 24 * 3600 * 1000;
+    const years = (targetDate.getTime() - priorDate.getTime()) / dayOfYear;
+    if (years <= 0.05) return null;
+    return Math.pow(currentVal / prior.value, 1 / years) - 1;
+  }
+
+  const initial = validPriors[0];
+  const cashFlows = [
+    { date: new Date(initial.date), amount: -Number(initial.value) },
+    { date: targetDate, amount: Number(currentVal) }
+  ];
+
+  return calculateXIRR(cashFlows);
+}
+
+/**
+ * Calculates portfolio-wide annualized return
+ */
+function calculatePortfolioXIRR(targetDateStr, currentTotalVal) {
+  if (isNaN(currentTotalVal) || currentTotalVal <= 0) return null;
+  const targetDate = new Date(targetDateStr);
+
+  const dateMap = {};
+  state.holdings.forEach(h => {
+    (h.history || []).forEach(entry => {
+      const d = entry.date;
+      if (new Date(d).getTime() < targetDate.getTime()) {
+        dateMap[d] = (dateMap[d] || 0) + (Number(entry.value) || 0);
+      }
+    });
+  });
+
+  const dates = Object.keys(dateMap).sort((a, b) => new Date(a) - new Date(b));
+  if (dates.length === 0) {
+    const yr2024Tot = state.holdings.reduce((sum, h) => sum + (Number(h.values?.["2024"]) || 0), 0);
+    if (yr2024Tot > 0) {
+      const d0 = new Date("2024-03-31");
+      const years = (targetDate.getTime() - d0.getTime()) / (365.25 * 24 * 3600 * 1000);
+      if (years > 0.1) return Math.pow(currentTotalVal / yr2024Tot, 1 / years) - 1;
+    }
+    return null;
+  }
+
+  const earliestDate = dates[0];
+  const earliestVal = dateMap[earliestDate];
+  if (earliestVal <= 0) return null;
+
+  const cashFlows = [
+    { date: new Date(earliestDate), amount: -earliestVal },
+    { date: targetDate, amount: currentTotalVal }
+  ];
+
+  return calculateXIRR(cashFlows);
+}
+
+// ==========================================
+// 4C. Valuation Snapshot & Drafts Management
+// ==========================================
+
+function getDraftStorageKey(dateStr) {
+  return `ak_draft_${state.currentProfile}_${dateStr}`;
+}
+
+function checkActiveDrafts() {
+  const targetDate = state.snapshot.date;
+  const draftKey = getDraftStorageKey(targetDate);
+  const rawDraft = localStorage.getItem(draftKey);
+
+  const banner = document.getElementById("snapshot-draft-banner");
+  const bannerText = document.getElementById("snapshot-draft-banner-text");
+
+  if (rawDraft) {
+    try {
+      const draft = JSON.parse(rawDraft);
+      const filledCount = Object.keys(draft.values || {}).filter(k => draft.values[k] !== "" && !isNaN(draft.values[k])).length;
+      const lastSaved = draft.savedAt ? new Date(draft.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "earlier";
+      
+      if (banner && bannerText) {
+        bannerText.innerHTML = `Unfinished draft detected for <strong>${formatDisplayDate(targetDate)}</strong> (${filledCount} assets entered, auto-saved at ${lastSaved}).`;
+        banner.style.display = "flex";
+      }
+      return draft;
+    } catch (e) {
+      if (banner) banner.style.display = "none";
+    }
+  } else {
+    if (banner) banner.style.display = "none";
+  }
+  return null;
+}
+
+function resumeDetectedDraft() {
+  const targetDate = state.snapshot.date;
+  const draftKey = getDraftStorageKey(targetDate);
+  const rawDraft = localStorage.getItem(draftKey);
+  if (!rawDraft) return;
+
+  try {
+    const draft = JSON.parse(rawDraft);
+    state.snapshot.draftValues = draft.values || {};
+    state.snapshot.draftNotes = draft.notes || {};
+    state.snapshot.draftSavedAt = draft.savedAt || new Date().toISOString();
+    
+    showToast(`Resumed draft for ${formatDisplayDate(targetDate)}!`, "success");
+    renderSnapshotTable();
+    updateSnapshotDraftStatus("● Draft loaded from storage", "clean");
+    
+    const banner = document.getElementById("snapshot-draft-banner");
+    if (banner) banner.style.display = "none";
+  } catch (e) {
+    showToast("Error loading draft.", "error");
+  }
+}
+
+function autoSaveSnapshotDraft() {
+  const targetDate = state.snapshot.date;
+  if (!targetDate) return;
+
+  const draftData = {
+    profile: state.currentProfile,
+    date: targetDate,
+    values: state.snapshot.draftValues,
+    notes: state.snapshot.draftNotes,
+    savedAt: new Date().toISOString(),
+  };
+
+  localStorage.setItem(getDraftStorageKey(targetDate), JSON.stringify(draftData));
+  state.snapshot.draftSavedAt = draftData.savedAt;
+  state.snapshot.hasUnsavedChanges = false;
+
+  const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  updateSnapshotDraftStatus(`● Auto-saved at ${timeStr}`, "clean");
+}
+
+function triggerSnapshotAutoSave() {
+  state.snapshot.hasUnsavedChanges = true;
+  updateSnapshotDraftStatus("● Saving draft...", "unsaved");
+
+  if (state.snapshot.autoSaveTimer) {
+    clearTimeout(state.snapshot.autoSaveTimer);
+  }
+  state.snapshot.autoSaveTimer = setTimeout(() => {
+    autoSaveSnapshotDraft();
+  }, 400);
+}
+
+function manualSaveDraft() {
+  autoSaveSnapshotDraft();
+  showToast(`Draft for ${formatDisplayDate(state.snapshot.date)} saved securely in browser storage.`, "success");
+}
+
+function discardCurrentDraft() {
+  const targetDate = state.snapshot.date;
+  if (!confirm(`Discard draft for ${formatDisplayDate(targetDate)}? All uncommitted values for this date will be cleared.`)) {
+    return;
+  }
+
+  localStorage.removeItem(getDraftStorageKey(targetDate));
+  state.snapshot.draftValues = {};
+  state.snapshot.draftNotes = {};
+  state.snapshot.hasUnsavedChanges = false;
+
+  const banner = document.getElementById("snapshot-draft-banner");
+  if (banner) banner.style.display = "none";
+
+  updateSnapshotDraftStatus("● Draft discarded", "clean");
+  showToast("Draft discarded successfully.", "info");
+  renderSnapshotTable();
+}
+
+function updateSnapshotDraftStatus(text, statusClass = "clean") {
+  const el = document.getElementById("snapshot-draft-status");
+  if (el) {
+    el.textContent = text;
+    el.className = `snapshot-status-pill ${statusClass}`;
+  }
+}
+
+function setSnapshotDate(type) {
+  const today = new Date();
+  let targetDate = "";
+
+  if (type === "today") {
+    targetDate = today.toISOString().split("T")[0];
+  } else if (type === "monthEnd") {
+    // Last day of current month
+    const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    targetDate = endOfMonth.toISOString().split("T")[0];
+  } else if (type === "fyEnd") {
+    // Current Indian fiscal year end (March 31)
+    const fyYear = today.getMonth() >= 3 ? today.getFullYear() + 1 : today.getFullYear();
+    targetDate = `${fyYear}-03-31`;
+  }
+
+  if (targetDate) {
+    handleSnapshotDateChange(targetDate);
+  }
+}
+
+function handleSnapshotDateChange(newDate) {
+  if (state.snapshot.hasUnsavedChanges) {
+    autoSaveSnapshotDraft();
+  }
+
+  state.snapshot.date = newDate;
+  const dateInput = document.getElementById("snapshot-date-input");
+  if (dateInput) dateInput.value = newDate;
+
+  // Check if draft exists for new date
+  const draft = checkActiveDrafts();
+  if (draft) {
+    state.snapshot.draftValues = draft.values || {};
+    state.snapshot.draftNotes = draft.notes || {};
+  } else {
+    state.snapshot.draftValues = {};
+    state.snapshot.draftNotes = {};
+  }
+
+  updateSnapshotDraftStatus("● Ready", "clean");
+  renderSnapshotTable();
+}
+
+function handleSnapshotInput(holdingId, val) {
+  state.snapshot.draftValues[holdingId] = val;
+  triggerSnapshotAutoSave();
+  renderSnapshotTable(true); // partial render to preserve input focus
+}
+
+function handleSnapshotNoteInput(holdingId, note) {
+  state.snapshot.draftNotes[holdingId] = note;
+  triggerSnapshotAutoSave();
+}
+
+function commitCurrentSnapshot() {
+  const targetDate = state.snapshot.date;
+  if (!targetDate) {
+    showToast("Please select a valuation date before committing.", "error");
+    return;
+  }
+
+  const enteredKeys = Object.keys(state.snapshot.draftValues).filter(k => {
+    const v = state.snapshot.draftValues[k];
+    return v !== "" && v !== null && !isNaN(v);
+  });
+
+  if (enteredKeys.length === 0) {
+    showToast("Please enter at least one asset valuation before committing.", "error");
+    return;
+  }
+
+  const targetYear = String(new Date(targetDate).getFullYear());
+
+  let updatedCount = 0;
+  state.holdings.forEach(h => {
+    if (state.snapshot.draftValues[h.id] !== undefined && state.snapshot.draftValues[h.id] !== "") {
+      const numVal = Number(state.snapshot.draftValues[h.id]) || 0;
+      const note = state.snapshot.draftNotes[h.id] !== undefined ? state.snapshot.draftNotes[h.id] : (h.notes || "");
+
+      if (!h.history) h.history = [];
+
+      const existingIdx = h.history.findIndex(entry => entry.date === targetDate);
+      if (existingIdx >= 0) {
+        h.history[existingIdx].value = numVal;
+        if (note) h.history[existingIdx].notes = note;
+      } else {
+        h.history.push({ date: targetDate, value: numVal, notes: note });
+      }
+
+      h.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      if (!h.values) h.values = {};
+      h.values[targetYear] = numVal;
+      h.date = targetDate;
+      if (note) h.notes = note;
+
+      updatedCount++;
+    }
+  });
+
+  if (!state.years.includes(targetYear)) {
+    state.years.push(targetYear);
+    state.years.sort();
+  }
+
+  localStorage.setItem(`ak_holdings_${state.currentProfile}`, JSON.stringify(state.holdings));
+  localStorage.removeItem(getDraftStorageKey(targetDate));
+
+  state.snapshot.hasUnsavedChanges = false;
+  state.snapshot.draftValues = {};
+  state.snapshot.draftNotes = {};
+
+  const banner = document.getElementById("snapshot-draft-banner");
+  if (banner) banner.style.display = "none";
+
+  updateSnapshotDraftStatus("● Committed to master ledger", "clean");
+  showToast(`✅ Snapshot for ${formatDisplayDate(targetDate)} published successfully! (${updatedCount} assets updated)`, "success");
+
+  renderUI();
+  renderSnapshotTable();
+
+  if (state.auth.isLoggedIn && state.auth.accessToken) {
+    syncHoldingsToGoogleSheet();
+  }
+}
+
+// ==========================================
+// 4D. Snapshot View Rendering
+// ==========================================
+
+function renderSnapshotSection() {
+  const dateInput = document.getElementById("snapshot-date-input");
+  if (dateInput && !dateInput.value) {
+    dateInput.value = state.snapshot.date;
+    dateInput.addEventListener("change", (e) => {
+      handleSnapshotDateChange(e.target.value);
+    });
+  }
+
+  checkActiveDrafts();
+  renderSnapshotTable();
+}
+
+function renderSnapshotTable(preserveFocus = false) {
+  const targetDate = state.snapshot.date;
+  const thDate = document.getElementById("snapshot-th-date");
+  if (thDate) thDate.textContent = formatDisplayDate(targetDate);
+
+  const filterEl = document.getElementById("snapshot-entity-filter");
+  const entityFilter = filterEl ? filterEl.value : "ALL";
+
+  // Active element focus tracking
+  let activeElementId = null;
+  let activeSelectionStart = 0;
+  let activeSelectionEnd = 0;
+  if (preserveFocus && document.activeElement) {
+    activeElementId = document.activeElement.getAttribute("data-id");
+    activeSelectionStart = document.activeElement.selectionStart;
+    activeSelectionEnd = document.activeElement.selectionEnd;
+  }
+
+  const tbody = document.getElementById("snapshot-tbody");
+  const tfoot = document.getElementById("snapshot-tfoot");
+  if (!tbody) return;
+
+  const filteredHoldings = state.holdings.filter(h => {
+    if (entityFilter === "ALL") return true;
+    return (h.holder || "").toLowerCase() === entityFilter.toLowerCase();
+  });
+
+  // Group by category
+  const categories = [
+    "Liquid / Cash",
+    "Fixed Income",
+    "Indian Equity",
+    "Mutual Funds",
+    "Global Equity",
+    "Employer Stock",
+    "Real Estate",
+    "Retirement",
+    "PMS",
+    "Unlisted Equity"
+  ];
+
+  const grouped = {};
+  filteredHoldings.forEach(h => {
+    const cat = h.category || "Other";
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(h);
+  });
+
+  let totalPortfolioSnapshotLakhs = 0;
+  let totalPriorSnapshotLakhs = 0;
+  let filledCount = 0;
+
+  let htmlRows = "";
+
+  // Render grouped sections
+  Object.keys(grouped).forEach(cat => {
+    const items = grouped[cat];
+    let catCurrentLakhs = 0;
+    let catPriorLakhs = 0;
+
+    const itemRows = items.map(h => {
+      const prior = getPriorValuation(h, targetDate);
+      const priorVal = prior ? Number(prior.value) : 0;
+      const priorDate = prior ? formatDisplayDate(prior.date) : "Historical";
+
+      // Check current input or draft
+      const draftVal = state.snapshot.draftValues[h.id];
+      const hasInput = draftVal !== undefined && draftVal !== "" && !isNaN(draftVal);
+      const currentNum = hasInput ? parseFloat(draftVal) : null;
+
+      const effectiveVal = hasInput ? currentNum : priorVal;
+      catCurrentLakhs += effectiveVal;
+      catPriorLakhs += priorVal;
+
+      if (hasInput) filledCount++;
+
+      // Delta computation
+      let deltaDisplay = `<span class="delta-zero">-</span>`;
+      if (hasInput && priorVal > 0) {
+        const delta = currentNum - priorVal;
+        const deltaPct = ((delta / priorVal) * 100).toFixed(1);
+        const sign = delta >= 0 ? "+" : "";
+        const deltaClass = delta >= 0 ? "delta-pos" : "delta-neg";
+        deltaDisplay = `<span class="${deltaClass}">${sign}${formatLakhsValue(delta)} (${sign}${deltaPct}%)</span>`;
+      } else if (hasInput && priorVal === 0) {
+        deltaDisplay = `<span class="delta-pos">New Asset</span>`;
+      }
+
+      // XIRR computation
+      let xirrDisplay = `<span class="xirr-pill">-</span>`;
+      if (hasInput && currentNum > 0) {
+        const holdingXIRR = calculateHoldingXIRR(h, targetDate, currentNum);
+        if (holdingXIRR !== null && !isNaN(holdingXIRR)) {
+          const pct = (holdingXIRR * 100).toFixed(1);
+          const sign = holdingXIRR >= 0 ? "+" : "";
+          const xirrClass = holdingXIRR >= 0 ? "xirr-pill pos" : "xirr-pill neg";
+          xirrDisplay = `<span class="${xirrClass}">${sign}${pct}%</span>`;
+        }
+      }
+
+      const noteVal = state.snapshot.draftNotes[h.id] !== undefined ? state.snapshot.draftNotes[h.id] : (h.notes || "");
+
+      return `
+        <tr>
+          <td>
+            <div style="font-weight:600; font-size:0.92rem; color:var(--text-primary);">${h.name}</div>
+          </td>
+          <td><span class="cell-category">${h.category}</span></td>
+          <td class="text-center"><span class="cell-entity">${h.holder || '-'}</span></td>
+          <td class="text-right prior-val-cell">
+            ${priorVal > 0 ? formatLakhsValue(priorVal) : "-"}
+            <div class="prior-date-sub">${priorDate}</div>
+          </td>
+          <td class="text-right">
+            <input 
+              type="number" 
+              step="0.001" 
+              min="0" 
+              class="snapshot-input ${hasInput ? 'filled' : ''}" 
+              data-id="${h.id}" 
+              value="${draftVal !== undefined ? draftVal : ''}" 
+              placeholder="${priorVal > 0 ? priorVal.toFixed(3) : '0.000'}" 
+              oninput="handleSnapshotInput('${h.id}', this.value)" 
+            />
+          </td>
+          <td class="text-right">${deltaDisplay}</td>
+          <td class="text-right">${xirrDisplay}</td>
+          <td>
+            <input 
+              type="text" 
+              class="snapshot-notes-input" 
+              data-note-id="${h.id}" 
+              value="${noteVal}" 
+              placeholder="Remarks / folio..." 
+              oninput="handleSnapshotNoteInput('${h.id}', this.value)" 
+            />
+          </td>
+        </tr>
+      `;
+    }).join("");
+
+    totalPortfolioSnapshotLakhs += catCurrentLakhs;
+    totalPriorSnapshotLakhs += catPriorLakhs;
+
+    const catDelta = catCurrentLakhs - catPriorLakhs;
+    const catDeltaPct = catPriorLakhs > 0 ? ((catDelta / catPriorLakhs) * 100).toFixed(1) : "0.0";
+    const catDeltaClass = catDelta >= 0 ? "delta-pos" : "delta-neg";
+    const catSign = catDelta >= 0 ? "+" : "";
+
+    htmlRows += `
+      <tr class="snapshot-category-header">
+        <td colspan="3">${cat}</td>
+        <td class="text-right">${formatLakhsValue(catPriorLakhs)}</td>
+        <td class="text-right">${formatLakhsValue(catCurrentLakhs)}</td>
+        <td class="text-right ${catDeltaClass}">${catSign}${formatLakhsValue(catDelta)} (${catSign}${catDeltaPct}%)</td>
+        <td colspan="2"></td>
+      </tr>
+      ${itemRows}
+    `;
+  });
+
+  tbody.innerHTML = htmlRows;
+
+  // Restore focus if needed
+  if (preserveFocus && activeElementId) {
+    const el = document.querySelector(`.snapshot-input[data-id="${activeElementId}"]`);
+    if (el) {
+      el.focus();
+      try {
+        el.setSelectionRange(activeSelectionStart, activeSelectionEnd);
+      } catch (e) {}
+    }
+  }
+
+  // Update Footer
+  const totalDelta = totalPortfolioSnapshotLakhs - totalPriorSnapshotLakhs;
+  const totalDeltaPct = totalPriorSnapshotLakhs > 0 ? ((totalDelta / totalPriorSnapshotLakhs) * 100).toFixed(1) : "0.0";
+  const portfolioXIRR = calculatePortfolioXIRR(targetDate, totalPortfolioSnapshotLakhs);
+  let portfolioXIRRText = "-";
+  if (portfolioXIRR !== null && !isNaN(portfolioXIRR)) {
+    const pSign = portfolioXIRR >= 0 ? "+" : "";
+    portfolioXIRRText = `${pSign}${(portfolioXIRR * 100).toFixed(1)}% p.a.`;
+  }
+
+  if (tfoot) {
+    const sign = totalDelta >= 0 ? "+" : "";
+    const deltaClass = totalDelta >= 0 ? "delta-pos" : "delta-neg";
+    tfoot.innerHTML = `
+      <tr class="total-row">
+        <td colspan="3" style="font-weight:800; text-transform:uppercase; letter-spacing:0.04em;">TOTAL SNAPSHOT VALUATION</td>
+        <td class="text-right" style="font-weight:700;">${formatLakhsValue(totalPriorSnapshotLakhs)}</td>
+        <td class="text-right" style="font-weight:800; font-size:1.05rem; color:var(--text-primary);">${formatLakhsValue(totalPortfolioSnapshotLakhs)}</td>
+        <td class="text-right ${deltaClass}" style="font-weight:700;">${sign}${formatLakhsValue(totalDelta)} (${sign}${totalDeltaPct}%)</td>
+        <td class="text-right" style="font-weight:800; color:var(--accent-sky); font-variant-numeric:tabular-nums;">${portfolioXIRRText}</td>
+        <td></td>
+      </tr>
+    `;
+  }
+
+  // Update Snapshot KPI Cards
+  const kpiTotal = document.getElementById("snapshot-kpi-total");
+  if (kpiTotal) kpiTotal.textContent = formatLakhsValue(totalPortfolioSnapshotLakhs);
+
+  const kpiDelta = document.getElementById("snapshot-kpi-delta");
+  if (kpiDelta) {
+    const sign = totalDelta >= 0 ? "+" : "";
+    kpiDelta.textContent = `${sign}${formatLakhsValue(totalDelta)}`;
+    kpiDelta.style.color = totalDelta >= 0 ? "var(--accent-emerald)" : "var(--accent-rose)";
+  }
+
+  const kpiDeltaPct = document.getElementById("snapshot-kpi-delta-pct");
+  if (kpiDeltaPct) {
+    const sign = totalDelta >= 0 ? "+" : "";
+    kpiDeltaPct.textContent = `${sign}${totalDeltaPct}% vs prior valuation (${formatDisplayDate(targetDate)})`;
+  }
+
+  const kpiXirr = document.getElementById("snapshot-kpi-xirr");
+  if (kpiXirr) {
+    kpiXirr.textContent = portfolioXIRRText;
+    kpiXirr.style.color = portfolioXIRR >= 0 ? "var(--accent-emerald)" : "var(--accent-rose)";
+  }
+
+  const kpiProgress = document.getElementById("snapshot-kpi-progress");
+  if (kpiProgress) {
+    kpiProgress.textContent = `${filledCount} / ${filteredHoldings.length}`;
+  }
+}
+
+function switchToTab(tabId) {
+  document.querySelectorAll(".tab-btn").forEach(b => {
+    if (b.getAttribute("data-tab") === tabId) {
+      b.classList.add("active");
+    } else {
+      b.classList.remove("active");
+    }
+  });
+  document.querySelectorAll(".tab-content").forEach(c => c.style.display = "none");
+  const target = document.getElementById(`tab-${tabId}`);
+  if (target) target.style.display = "block";
+  state.activeTab = tabId;
+
+  if (tabId === "snapshot") renderSnapshotSection();
+  else if (tabId === "overview") renderMinimalOverview();
+  else if (tabId === "multiyear") renderMultiYearMatrix();
+  else if (tabId === "banks") renderBanksSection();
+  else if (tabId === "brokers") renderBrokersTable();
 }
 
 // ==========================================
@@ -708,10 +1440,24 @@ function saveHolding(e) {
       state.holdings[idx].date = asOfDate;
       state.holdings[idx].notes = notesInput.value.trim();
       state.holdings[idx].values = values;
+
+      if (!state.holdings[idx].history) state.holdings[idx].history = [];
+      const asOfYr = String(new Date(asOfDate).getFullYear());
+      const asOfVal = values[asOfYr] !== undefined ? values[asOfYr] : (values["2026"] || 0);
+      const histIdx = state.holdings[idx].history.findIndex(e => e.date === asOfDate);
+      if (histIdx >= 0) {
+        state.holdings[idx].history[histIdx].value = asOfVal;
+      } else {
+        state.holdings[idx].history.push({ date: asOfDate, value: asOfVal });
+      }
+      state.holdings[idx].history.sort((a, b) => new Date(a.date) - new Date(b.date));
+
       showToast(`Updated ${name}!`, "success");
     }
   } else {
     const newId = "h_" + Date.now();
+    const asOfYr = String(new Date(asOfDate).getFullYear());
+    const asOfVal = values[asOfYr] !== undefined ? values[asOfYr] : (values["2026"] || 0);
     state.holdings.push({
       id: newId,
       name,
@@ -719,7 +1465,8 @@ function saveHolding(e) {
       holder,
       date: asOfDate,
       notes: notesInput.value.trim(),
-      values
+      values,
+      history: [{ date: asOfDate, value: asOfVal }]
     });
     showToast(`Added ${name} for ${holder}!`, "success");
   }
@@ -733,6 +1480,7 @@ function saveHolding(e) {
 function updateEntityDropdowns() {
   const overSelect = document.getElementById("overview-entity-select");
   const multiSelect = document.getElementById("multiyear-entity-select");
+  const snapSelect = document.getElementById("snapshot-entity-filter");
 
   const opts = `
     <option value="ALL">👨‍👩‍👧 All Entities (${state.currentProfile})</option>
@@ -741,6 +1489,12 @@ function updateEntityDropdowns() {
 
   if (overSelect) overSelect.innerHTML = opts;
   if (multiSelect) multiSelect.innerHTML = opts;
+  if (snapSelect) {
+    snapSelect.innerHTML = `
+      <option value="ALL">All Entities</option>
+      ${state.entities.map(e => `<option value="${e}">${e}</option>`).join("")}
+    `;
+  }
 }
 
 // ==========================================
@@ -1021,6 +1775,7 @@ function renderBrokersTable() {
 // 10. Master UI Dispatcher
 // ==========================================
 function renderUI() {
+  renderSnapshotSection();
   renderMinimalOverview();
   renderMultiYearMatrix();
   renderBanksSection();
@@ -1382,6 +2137,58 @@ async function syncBanksToGoogleSheet(showAlert = true) {
   showToast("Updating Google Sheet...", "info");
 }
 
+async function syncHoldingsToGoogleSheet(showAlert = false) {
+  if (!state.auth.isLoggedIn || !state.auth.accessToken) {
+    if (showAlert) showToast("Sign in with Google first to sync with your private sheet.", "info");
+    return;
+  }
+
+  showToast("Updating Google Sheet...", "info");
+  try {
+    const sheetId = state.config.sheetId;
+    if (!sheetId) return;
+
+    const headerRow = ["Date", "Profile", "Member", "Category", "Investment", "Valuation", "Status", "Notes"];
+    const rows = [headerRow];
+
+    state.holdings.forEach(h => {
+      const hist = (h.history && h.history.length > 0) 
+        ? h.history 
+        : [{ date: h.date || state.snapshot.date, value: h.values?.["2026"] || 0 }];
+
+      hist.forEach(entry => {
+        rows.push([
+          entry.date || state.snapshot.date,
+          state.currentProfile,
+          h.holder || state.entities[0],
+          h.category || "Indian Equity",
+          h.name,
+          Number(entry.value) || 0,
+          "FINAL",
+          entry.notes || h.notes || ""
+        ]);
+      });
+    });
+
+    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(state.currentProfile)}!A1?valueInputOption=USER_ENTERED`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${state.auth.accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ values: rows })
+    });
+
+    if (res.ok) {
+      showToast("Google Sheet updated successfully!", "success");
+    } else {
+      console.warn("Sheet update returned:", res.status);
+    }
+  } catch (err) {
+    console.error("Error syncing to Google Sheet:", err);
+  }
+}
+
 
 // ==========================================
 // 12. Event Listeners & Startup Initializer
@@ -1399,9 +2206,11 @@ function setupEventListeners() {
       if (target) target.style.display = "block";
       state.activeTab = tabId;
 
-      if (tabId === "overview") renderMinimalOverview();
+      if (tabId === "snapshot") renderSnapshotSection();
+      else if (tabId === "overview") renderMinimalOverview();
       else if (tabId === "multiyear") renderMultiYearMatrix();
       else if (tabId === "banks") renderBanksSection();
+      else if (tabId === "brokers") renderBrokersTable();
     });
   });
 

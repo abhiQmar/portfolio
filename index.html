@@ -169,27 +169,152 @@
       </div>
     </div>
 
-    <!-- Navigation Tabs: Tab 1 = Single-Year Minimalist, Tab 2 = Multi-Year Matrix -->
+    <!-- Navigation Tabs -->
     <nav class="tabs-nav">
-      <button class="tab-btn active" data-tab="overview">
-        <span>📊</span> Annual Portfolio (1-Year Minimalist)
+      <button class="tab-btn active" data-tab="snapshot">
+        <span>📅</span> Valuation Snapshot & Drafts
+      </button>
+      <button class="tab-btn" data-tab="overview">
+        <span>📊</span> Annual Portfolio
       </button>
       <button class="tab-btn" data-tab="multiyear">
-        <span>📅</span> Multi-Year Matrix (Columns by Year)
+        <span>📈</span> Multi-Year Matrix
       </button>
       <button class="tab-btn" data-tab="banks">
         <span>🏦</span> Bank Balances & FDs
       </button>
       <button class="tab-btn" data-tab="brokers">
-        <span>🌐</span> US Stocks & Demat ($UBER, IBKR)
+        <span>🌐</span> US Stocks & Demat
       </button>
       <button class="tab-btn" data-tab="sync">
         <span>🔒</span> Google Sheet Sync & Security
       </button>
     </nav>
 
+    <!-- ==================== TAB 0: PERIODIC VALUATION SNAPSHOT & DRAFTS ==================== -->
+    <section id="tab-snapshot" class="tab-content" style="display: block;">
+      
+      <!-- Top Control Bar: Date Selection, Draft Status, Actions -->
+      <div class="snapshot-header-card">
+        <div class="snapshot-controls-left">
+          <div class="snapshot-date-group">
+            <label for="snapshot-date-input" class="snapshot-label">Valuation Date (Mandatory):</label>
+            <input type="date" id="snapshot-date-input" class="minimal-select snapshot-date-input" required />
+            <div class="snapshot-quick-dates">
+              <button type="button" class="btn-date-quick" onclick="setSnapshotDate('today')">Today</button>
+              <button type="button" class="btn-date-quick" onclick="setSnapshotDate('monthEnd')">Month-End</button>
+              <button type="button" class="btn-date-quick" onclick="setSnapshotDate('fyEnd')">FY-End</button>
+            </div>
+          </div>
+
+          <div class="snapshot-status-wrapper">
+            <span id="snapshot-draft-status" class="snapshot-status-pill clean">● Ready</span>
+          </div>
+        </div>
+
+        <div class="snapshot-controls-right">
+          <button type="button" class="btn btn-secondary" id="btn-save-draft" onclick="manualSaveDraft()">
+            <span>💾</span> Save Draft
+          </button>
+          <button type="button" class="btn btn-secondary btn-discard" id="btn-discard-draft" onclick="discardCurrentDraft()">
+            <span>🗑️</span> Discard Draft
+          </button>
+          <button type="button" class="btn btn-primary" id="btn-commit-snapshot" onclick="commitCurrentSnapshot()">
+            <span>✅</span> Commit & Publish Snapshot
+          </button>
+        </div>
+      </div>
+
+      <!-- Active Draft Notification Banner -->
+      <div id="snapshot-draft-banner" class="snapshot-draft-banner" style="display: none;">
+        <div class="banner-content">
+          <span class="banner-icon">📝</span>
+          <span id="snapshot-draft-banner-text">Unfinished draft detected for selected date.</span>
+        </div>
+        <div class="banner-actions">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="resumeDetectedDraft()">Resume Draft</button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="discardCurrentDraft()">Discard</button>
+        </div>
+      </div>
+
+      <!-- Snapshot KPI Overview Bar -->
+      <div class="kpi-grid snapshot-kpi-grid">
+        <div class="kpi-card hero-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Snapshot Valuation</span>
+            <div class="kpi-icon emerald">📈</div>
+          </div>
+          <div class="kpi-value" id="snapshot-kpi-total">₹0.00 Cr</div>
+          <div class="kpi-subtext" id="snapshot-kpi-total-sub">Total Portfolio Worth</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Delta vs Prior Snapshot</span>
+            <div class="kpi-icon blue">📊</div>
+          </div>
+          <div class="kpi-value" id="snapshot-kpi-delta">₹0.00 L</div>
+          <div class="kpi-subtext" id="snapshot-kpi-delta-pct">Change vs last date</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Annualized Return (XIRR)</span>
+            <div class="kpi-icon purple">⚡</div>
+          </div>
+          <div class="kpi-value" id="snapshot-kpi-xirr">0.0%</div>
+          <div class="kpi-subtext">Portfolio-Wide Return</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Progress</span>
+            <div class="kpi-icon amber">📋</div>
+          </div>
+          <div class="kpi-value" id="snapshot-kpi-progress">0 / 0</div>
+          <div class="kpi-subtext">Holdings Recorded</div>
+        </div>
+      </div>
+
+      <!-- Unified Rapid Entry Table -->
+      <div class="card" style="margin-top: 1.25rem;">
+        <div class="card-title-bar">
+          <h3 class="card-title"><span>📑</span> Asset Valuation Entry Grid</h3>
+          <div style="display: flex; gap: 0.65rem; align-items: center;">
+            <select id="snapshot-entity-filter" class="minimal-select" onchange="renderSnapshotTable()">
+              <option value="ALL">All Entities</option>
+            </select>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="openHoldingModal()">➕ New Asset</button>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="data-table snapshot-table">
+            <thead>
+              <tr>
+                <th style="min-width: 220px;">Asset / Investment</th>
+                <th>Category</th>
+                <th class="text-center">Member</th>
+                <th class="text-right">Prior Valuation</th>
+                <th class="text-right" style="min-width: 170px;">Valuation as of <span id="snapshot-th-date">Date</span> (₹ L)</th>
+                <th class="text-right">Change (₹ / %)</th>
+                <th class="text-right">XIRR</th>
+                <th style="min-width: 160px;">Notes / Folio</th>
+              </tr>
+            </thead>
+            <tbody id="snapshot-tbody">
+              <!-- Rendered dynamically by app.js -->
+            </tbody>
+            <tfoot id="snapshot-tfoot">
+              <!-- Rendered dynamically by app.js -->
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <!-- ==================== TAB 1: SINGLE-YEAR MINIMALIST ==================== -->
-    <section id="tab-overview" class="tab-content" style="display: block;">
+    <section id="tab-overview" class="tab-content" style="display: none;">
       
       <!-- Minimalist Control Bar: Year Dropdown & Entity Selector -->
       <div class="minimal-control-bar">
@@ -214,6 +339,9 @@
         </div>
 
         <div style="display: flex; gap: 0.5rem;">
+          <button class="btn btn-secondary" onclick="switchToTab('snapshot')">
+            <span>📅</span> New Valuation Snapshot
+          </button>
           <button class="btn btn-primary" onclick="openHoldingModal()">
             <span>➕</span> Add / Edit Holding
           </button>
@@ -280,7 +408,6 @@
         <div class="card">
           <div class="card-title-bar">
             <h3 class="card-title"><span>🥧</span> Asset Allocation</h3>
-            <span style="font-size: 0.75rem; color: var(--text-muted);">For Selected Year</span>
           </div>
           <div class="chart-wrapper">
             <canvas id="chart-allocation"></canvas>
@@ -290,7 +417,6 @@
         <div class="card">
           <div class="card-title-bar">
             <h3 class="card-title"><span>👥</span> Entity & Account Distribution</h3>
-            <span style="font-size: 0.75rem; color: var(--text-muted);">Share across family accounts</span>
           </div>
           <div class="chart-wrapper">
             <canvas id="chart-entity-share"></canvas>
@@ -302,7 +428,6 @@
       <div class="card">
         <div class="card-title-bar">
           <h3 class="card-title"><span>📑</span> Single-Year Holdings Ledger</h3>
-          <span style="font-size: 0.8rem; color: var(--text-muted);">Showing individual holdings for the selected year</span>
         </div>
         <div class="table-responsive">
           <table class="data-table">
@@ -330,12 +455,9 @@
     <!-- ==================== TAB 2: MULTI-YEAR ANNUAL MATRIX ==================== -->
     <section id="tab-multiyear" class="tab-content" style="display: none;">
       
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
         <div>
-          <h2 style="font-size: 1.35rem; font-weight: 700; margin-bottom: 0.35rem;">Multi-Year Comparative Ledger</h2>
-          <p style="font-size: 0.85rem; color: var(--text-secondary);">
-            Annual wealth progression with columns for each fiscal year across family accounts.
-          </p>
+          <h2 style="font-size: 1.35rem; font-weight: 700;">Multi-Year Comparative Ledger</h2>
         </div>
 
         <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
@@ -355,7 +477,6 @@
       <div class="card" style="margin-bottom: 1.5rem;">
         <div class="card-title-bar">
           <h3 class="card-title"><span>📈</span> Multi-Year Net Worth Progression</h3>
-          <span style="font-size: 0.75rem; color: var(--text-muted);">2024 → 2025 → 2026</span>
         </div>
         <div class="chart-wrapper" style="height: 240px;">
           <canvas id="chart-multiyear-trend"></canvas>
@@ -366,7 +487,6 @@
       <div class="card">
         <div class="card-title-bar">
           <h3 class="card-title"><span>📊</span> Annual Comparison Matrix</h3>
-          <span class="badge badge-liquid">Multi-Year Statement</span>
         </div>
         <div class="table-responsive">
           <table class="data-table">
@@ -386,12 +506,9 @@
 
     <!-- ==================== TAB 3: BANKS & CASH ==================== -->
     <section id="tab-banks" class="tab-content" style="display: none;">
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
         <div>
-          <h2 style="font-size: 1.35rem; font-weight: 700; margin-bottom: 0.35rem;">Bank Balances & Fixed Deposits</h2>
-          <p style="font-size: 0.85rem; color: var(--text-secondary);">
-            Reconciled bank accounts with account holder assignment.
-          </p>
+          <h2 style="font-size: 1.35rem; font-weight: 700;">Bank Balances & Fixed Deposits</h2>
         </div>
         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
           <button class="btn btn-primary" onclick="openBankModal()">
@@ -412,7 +529,6 @@
       <div class="card">
         <div class="card-title-bar">
           <h3 class="card-title"><span>🏦</span> Detailed Bank Reconciled Ledger</h3>
-          <span class="badge badge-liquid">100% Reconciled</span>
         </div>
         <div class="table-responsive">
           <table class="data-table">
@@ -445,7 +561,6 @@
       <div class="converter-card">
         <div class="converter-info">
           <h3>Currency Converter & Overseas Asset Pricing</h3>
-          <p>Real-time FX translation for USD accounts (IBKR, Vested, Uber RSUs).</p>
         </div>
         <div class="converter-controls">
           <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary);">1 USD = </span>

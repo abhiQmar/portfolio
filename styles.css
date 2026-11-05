@@ -1123,3 +1123,303 @@ body {
   color: var(--text-muted);
 }
 
+/* ==========================================================================
+   PERIODIC VALUATION SNAPSHOT & DRAFTS WORKFLOW
+   High-Density, Muted Institutional Style (No Rainbow Badges, No Subtitles)
+   ========================================================================== */
+
+.snapshot-header-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.snapshot-controls-left {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.snapshot-date-group {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.snapshot-label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.snapshot-date-input {
+  background: #0d1322;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 0.92rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.snapshot-date-input:focus {
+  border-color: var(--accent-sky);
+  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2);
+}
+
+.snapshot-quick-dates {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.btn-date-quick {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.35rem 0.65rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-date-quick:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-sky);
+  background: rgba(14, 165, 233, 0.1);
+}
+
+.snapshot-status-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+.snapshot-status-pill {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: all 0.2s ease;
+}
+
+.snapshot-status-pill.clean {
+  background: rgba(16, 185, 129, 0.1);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.snapshot-status-pill.unsaved {
+  background: rgba(245, 158, 11, 0.1);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.snapshot-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.btn-discard {
+  background: transparent;
+  border: 1px solid rgba(244, 63, 94, 0.35);
+  color: #fb7185;
+}
+
+.btn-discard:hover {
+  background: rgba(244, 63, 94, 0.12);
+  border-color: #fb7185;
+}
+
+/* Active Draft Banner */
+.snapshot-draft-banner {
+  background: rgba(14, 165, 233, 0.08);
+  border: 1px solid rgba(14, 165, 233, 0.3);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1.15rem;
+  margin-bottom: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.snapshot-draft-banner .banner-content {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.snapshot-draft-banner .banner-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-sm {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+}
+
+/* Snapshot KPI grid */
+.snapshot-kpi-grid {
+  margin-bottom: 0.5rem;
+}
+
+/* Snapshot Table Styling (Minimalist accounting ledger rows) */
+.snapshot-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.86rem;
+}
+
+.snapshot-table th {
+  background: #0d1322;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+
+.snapshot-table td {
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.snapshot-table tr:hover td {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.snapshot-category-header td {
+  background: #0f1626;
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.55rem 0.75rem;
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.snapshot-category-subtotal {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+/* Clean numeric input in grid */
+.snapshot-input {
+  background: #090d16;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 0.38rem 0.55rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-align: right;
+  width: 135px;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.snapshot-input:focus {
+  border-color: var(--accent-sky);
+  background: #0d1527;
+  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2);
+}
+
+.snapshot-input.filled {
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.snapshot-notes-input {
+  background: #090d16;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.5rem;
+  font-size: 0.78rem;
+  width: 100%;
+  outline: none;
+}
+
+.snapshot-notes-input:focus {
+  border-color: var(--accent-sky);
+  color: var(--text-primary);
+}
+
+/* Delta indicators */
+.delta-pos {
+  color: #34d399;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.delta-neg {
+  color: #fb7185;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.delta-zero {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.xirr-pill {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: #cbd5e1;
+}
+
+.xirr-pill.pos {
+  color: #34d399;
+}
+
+.xirr-pill.neg {
+  color: #fb7185;
+}
+
+.prior-val-cell {
+  color: #94a3b8;
+  font-size: 0.84rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.prior-date-sub {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+
